@@ -635,7 +635,9 @@ function measurementsHtml(profile, list, own) {
                 <span class="small muted">${shown.filter(f => m[f.id] != null).map(f => `${f.label.toLowerCase()} ${inches(m[f.id])}`).join(' · ')}
                 <button class="icon-btn" data-del-measure="${m.id}" aria-label="Delete">✕</button></span></div>`).join('')}
           </details>` : ''}`
-      : `<p class="empty">${own ? 'No measurements yet. Tap Update — it takes 2 minutes with a tape measure.' : 'No measurements yet.'}</p>`}
+      : `<p class="empty">${own
+        ? `No measurements yet. Tap <b>Update</b>, enter your height and measurements, and you'll get your ${profile.sex === 'female' ? 'Beginner → MEGA GYM BADDIE 💅' : 'Beginner → Elite'} rating for each one.`
+        : 'No measurements yet.'}</p>`}
     </section>`;
 }
 
