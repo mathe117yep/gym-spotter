@@ -80,7 +80,7 @@ export function personalRecords(workouts) {
   return [...map.values()].sort((a, b) => b.last.localeCompare(a.last) || b.sessions - a.sessions);
 }
 
-function weekStart(iso) {
+export function weekStart(iso) {
   const d = new Date(toTime(iso));
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday
   return d.getTime();

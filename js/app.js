@@ -3,6 +3,7 @@ import {
   SQUAT, BENCH, key, e1rm, round, todayIso, daysAgo, sortByDate,
   exerciseSeries, liftSummary, personalRecords, weeklySummary, weightSummary,
 } from './stats.js';
+import { GOALS, targetRange, dailyRemark, recentReports, lastWeekStart } from './coach.js';
 import * as charts from './charts.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
@@ -37,6 +38,8 @@ function relDay(iso) {
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const GOAL_WORD = { bulk: 'Bulking', cut: 'Cutting', recomp: 'Recomping' };
+const signedLb = n => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${fmtWeight(Math.abs(n))}`;
 const setText = s => `${s.weight === 0 ? 'BW' : fmtWeight(s.weight)} × ${s.reps}`;
 
 // Workouts are cached per user so switching tabs is instant. Own data is dropped after any change.
@@ -75,7 +78,7 @@ async function route() {
   if (!me()) return paint(token, loginView(), false);
   if (!me().onboarded && parts[0] !== 'welcome') return go('welcome');
 
-  const tab = { '': 'home', u: parts[1] === me().username ? (parts[2] ? 'history' : 'home') : 'buddies' }[parts[0] ?? ''] ?? parts[0];
+  const tab = { '': 'home', history: 'log', weight: 'home', u: parts[1] === me().username ? (parts[2] ? 'log' : 'home') : 'buddies' }[parts[0] ?? ''] ?? parts[0];
   nav.querySelectorAll('a').forEach(a => a.classList.toggle('active', a.dataset.tab === tab));
   view.innerHTML = '<div class="loading">Loading…</div>';
 
@@ -89,6 +92,7 @@ async function route() {
     else if (page === 'buddies') result = await buddiesView();
     else if (page === 'pics') result = await picsView();
     else if (page === 'weight') result = await weightView();
+    else if (page === 'plan') result = await planView();
     else if (page === 'u' && b === 'w' && parts[4] === 'edit') result = await editView(await profileFor(a), c);
     else if (page === 'u' && b === 'w') result = await workoutView(await profileFor(a), c);
     else if (page === 'u' && b === 'history') result = await historyView(await profileFor(a));
@@ -295,11 +299,15 @@ async function dashboardView(profile) {
   const todayBw = bodyweights.find(b => b.logged_on === today);
   const base = `#/u/${encodeURIComponent(profile.username)}`;
   const firstName = profile.display_name.split(' ')[0];
+  // Mondays: the report on the week that just ended, shown once the morning weigh-in is in.
+  const mondayReport = own && profile.goal && new Date().getDay() === 1
+    ? recentReports(profile.goal, bodyweights, today, 1).find(r => r.start === lastWeekStart(today))
+    : null;
 
   const html = `
     <div class="page-title">
       ${own ? `<h2>Hey ${esc(firstName)}</h2>` : `<a class="back" href="#/buddies">‹ Buddies</a><h2>${esc(profile.display_name)}</h2>`}
-      <span class="muted small">${recent.length ? `Last workout: ${relDay(recent[0].date)}` : 'No workouts yet'}</span>
+      <span class="muted small">${recent.length ? `Last workout: ${relDay(recent[0].date)}` : 'No workouts yet'}${profile.goal ? ` · <span class="gold">${GOAL_WORD[profile.goal]}</span>` : ''}</span>
     </div>
 
     ${own ? `
@@ -308,7 +316,9 @@ async function dashboardView(profile) {
           ? `<div class="row between"><div><span class="muted small">This morning</span><div class="big">${fmtWeight(todayBw.weight)} lb ✓</div></div><a class="btn small" href="#/weight">Weight log</a></div>`
           : `<form id="weigh-form" class="row"><label class="grow">Morning weigh-in<input id="weigh-input" type="number" inputmode="decimal" step="0.1" min="50" max="600" placeholder="${bw ? fmtWeight(bw.latest.weight) : 'lbs'}" required></label><button class="btn primary" type="submit">Save</button></form>
              <a class="muted small" href="#/weight">Weight log ›</a>`}
-      </section>` : ''}
+        ${todayBw ? remarkHtml(dailyRemark(profile.goal, bodyweights, today)) : ''}
+      </section>
+      ${todayBw && mondayReport ? `<section class="card"><div class="row between"><h3>Weekly report</h3><a class="small" href="#/plan">Plan ›</a></div>${reportHtml(mondayReport)}</section>` : ''}` : ''}
 
     <div class="tiles">
       ${liftTile('Squat', squat, charts.COLORS.squat)}
@@ -406,11 +416,18 @@ async function dashboardView(profile) {
 // Log, history, single workout, edit
 // ---------------------------------------------------------------------------
 
+const logSwitch = active => `
+  <div class="segment">
+    <a href="#/log" class="${active === 'log' ? 'active' : ''}">Log new</a>
+    <a href="#/history" class="${active === 'history' ? 'active' : ''}">History</a>
+  </div>`;
+
 async function logView() {
   const existing = await workoutsFor(me().id);
   return {
     html: `
       <div class="page-title"><h2>Log a workout</h2></div>
+      ${logSwitch('log')}
       <section class="card">
         <p class="hint">Paste straight from RepCount. You can paste one workout or a whole stack of old ones — every date line starts a new workout.</p>
         ${pasteBoxHtml('log')}
@@ -435,6 +452,7 @@ async function historyView(profile) {
         <h2>${own ? 'Your workouts' : `${esc(profile.display_name.split(' ')[0])}'s workouts`}</h2>
         <span class="muted small">${workouts.length} total</span>
       </div>
+      ${own ? logSwitch('history') : ''}
       ${workouts.length ? [...months].map(([label, ws]) => `
         <section class="card"><h3>${label} <span class="muted small">· ${ws.length}</span></h3>${ws.map(w => workoutRow(w, profile)).join('')}</section>`).join('')
         : `<p class="empty">No workouts yet.${own ? ' Paste one on the <a href="#/log">Log</a> tab.' : ''}</p>`}`,
@@ -506,6 +524,93 @@ async function editView(profile, id) {
         toast('Saved');
         location.hash = back;
       });
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Plan: body composition goal, weigh-in feedback and weekly reports
+// ---------------------------------------------------------------------------
+
+function remarkHtml(remark) {
+  return remark ? `<p class="remark ${remark.tone}">${esc(remark.text)}</p>` : '';
+}
+
+const weekLabel = ms => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+function reportHtml(r) {
+  return `
+    <div class="report ${r.status}">
+      <div class="row between"><b class="report-head">${esc(r.headline)}</b><span class="muted small">Week of ${weekLabel(r.start)}</span></div>
+      <div class="report-nums">
+        <div><span class="tile-label">This week</span><b>${fmtWeight(r.curAvg)}</b></div>
+        <div><span class="tile-label">Week before</span><b>${fmtWeight(r.prevAvg)}</b></div>
+        <div><span class="tile-label">Change</span><b class="delta">${signedLb(r.change)} lb</b><span class="muted small">${r.pct >= 0 ? '+' : '−'}${Math.abs(r.pct).toFixed(2)}%</span></div>
+      </div>
+      <p>${esc(r.advice)}</p>
+      <p class="hint">Weekly averages, Monday–Sunday. Target for you: ${esc(r.target)} a week.${r.thin ? ' Only a few weigh-ins this time — weigh in daily for a sharper read.' : ''}</p>
+    </div>`;
+}
+
+async function planView() {
+  const bodyweights = await api.getBodyweights(me().id);
+  const goal = me().goal;
+  const today = todayIso();
+  const current = weightSummary(bodyweights)?.latest.avg;
+  const reports = goal ? recentReports(goal, bodyweights, today) : [];
+  const latest = reports[0]?.start === lastWeekStart(today) ? reports[0] : null;
+  const past = reports.filter(r => r !== latest);
+
+  return {
+    html: `
+      <div class="page-title"><h2>Plan</h2></div>
+      <section class="card">
+        <h3>Body composition</h3>
+        <p class="hint">Pick your goal. Every weigh-in gets feedback based on it, and each Monday's weigh-in comes with a weekly report.</p>
+        <div class="goal-options">
+          ${Object.entries(GOALS).map(([k, g]) => `
+            <button class="goal-opt${goal === k ? ' active' : ''}" data-goal="${k}">
+              <span class="goal-name">${g.label}${goal === k ? ' <span class="tag">Current</span>' : ''}</span>
+              <span>${g.blurb}</span>
+              <span class="muted small">Aim to ${g.target}${current ? ` — ${targetRange(k, current)} a week for you` : ''}.</span>
+            </button>`).join('')}
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Weekly report</h3>
+        ${!goal ? '<p class="empty">Pick a goal above to start getting reports.</p>'
+          : latest ? reportHtml(latest)
+          : '<p class="empty">Your next report shows up Monday — it needs weigh-ins from two weeks in a row to compare.</p>'}
+      </section>
+
+      ${past.length ? `
+        <section class="card">
+          <h3>Past weeks</h3>
+          ${past.map(r => `
+            <div class="list-row static">
+              <span>Week of ${weekLabel(r.start)}<div class="muted small">${fmtWeight(r.curAvg)} lb avg</div></span>
+              <span class="report-chip ${r.status}">${signedLb(r.change)} lb · ${esc(r.headline)}</span>
+            </div>`).join('')}
+        </section>` : ''}
+
+      <section class="card">
+        <h3>Weight progress</h3>
+        <p class="empty">Lifting programs are coming soon.</p>
+      </section>`,
+    mount() {
+      document.querySelectorAll('.goal-opt').forEach(btn => btn.addEventListener('click', async () => {
+        if (btn.dataset.goal === goal) return;
+        btn.disabled = true;
+        try {
+          await api.updateMyProfile({ goal: btn.dataset.goal });
+          toast(`Goal set: ${GOALS[btn.dataset.goal].label}`);
+          route();
+        } catch (e) {
+          btn.disabled = false;
+          toast(`Couldn't save: ${e.message}`);
+        }
+      }));
     },
   };
 }

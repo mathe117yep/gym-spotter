@@ -11,6 +11,7 @@ create table public.profiles (
   username     text not null unique,
   display_name text not null,
   onboarded    boolean not null default false,
+  goal         text check (goal in ('bulk', 'cut', 'recomp')),
   created_at   timestamptz not null default now()
 );
 
