@@ -14,6 +14,23 @@ import { deloadCheck, DELOAD_DAYS } from './deload.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
 
+// Phones (home-screen apps especially) hang on to old files. Whenever the app opens or comes
+// back to the foreground, compare with the deployed version.json and reload once if it's newer.
+async function checkForUpdate() {
+  if (window.APP_VERSION === 'dev') return;
+  try {
+    const { version } = await (await fetch('version.json', { cache: 'no-store' })).json();
+    if (!version || version === window.APP_VERSION) return;
+    const tried = `gs-updated-to-${version}`;
+    if (sessionStorage.getItem(tried)) return; // only one attempt per version, never a reload loop
+    sessionStorage.setItem(tried, '1');
+    await Promise.all(['./', location.href.split('#')[0]].map(u => fetch(u, { cache: 'reload' })));
+    location.reload();
+  } catch { /* offline or storage blocked: keep running this copy */ }
+}
+checkForUpdate();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+
 // iPhone Safari ignores user-scalable=no, so block pinch-zoom gestures directly.
 for (const ev of ['gesturestart', 'gesturechange']) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
 document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });

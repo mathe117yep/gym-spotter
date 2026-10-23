@@ -27,3 +27,9 @@ Plain HTML/CSS/JavaScript hosted on GitHub Pages, with [Supabase](https://supaba
 | `supabase/schema.sql` | Database tables and security rules |
 
 To run it locally: `python -m http.server 8137`, then open http://localhost:8137/?demo
+
+## Deploying an update
+
+Run `python tools/bump_version.py` before every push. It stamps a new version on every file so
+phones (especially the home-screen app) fetch fresh copies; open apps notice the new
+`version.json` and reload themselves.
