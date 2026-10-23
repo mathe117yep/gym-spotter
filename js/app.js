@@ -7,6 +7,7 @@ import { GOALS, targetRange, dailyRemark, recentReports, lastWeekStart, goalProg
 import * as charts from './charts.js';
 import { MUSCLES, MUSCLE_LABEL, buildMatcher, keyOf } from './muscles.js';
 import { analyzeBalance } from './balance.js';
+import { compareWorkout } from './compare.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
 const api = demo ? await import('./mock-api.js') : await import('./api.js');
@@ -199,6 +200,39 @@ Logged using RepCount"></textarea>
     <div id="${id}-result"></div>`;
 }
 
+const VERDICT = { pr: '🏆 New best', up: '▲ Up', same: '● Matched', down: '▼ Down', new: 'First time' };
+
+// Exercise-by-exercise comparison with the last time each one was done.
+function workoutReportHtml(r) {
+  const tally = [
+    r.up && `<b class="gold">${r.up} up${r.prs ? ` (🏆 ${plural(r.prs, 'new best')})` : ''}</b>`,
+    r.same && `${r.same} matched`, r.down && `<b class="down-text">${r.down} down</b>`, r.fresh && `${r.fresh} first time`,
+  ].filter(Boolean).join(' · ');
+  const sets = list => list.map(s => esc(setText(s))).join(', ');
+  const detail = e => {
+    if (e.verdict === 'new') return "First time logging this one — today's sets are your baseline.";
+    const { now, prev } = e;
+    if (e.byReps) return `Best set ${now.maxReps} reps vs ${prev.maxReps} · ${now.totalReps} total reps vs ${prev.totalReps}.`;
+    if (e.byTop) return `Top set ${esc(setText({ weight: now.top, reps: now.topReps }))} vs ${esc(setText({ weight: prev.top, reps: prev.topReps }))}.`;
+    const vol = Math.round(((now.volume - prev.volume) / prev.volume) * 100);
+    return `Best set ${esc(setText(now.bestSet))} (est. ${lb(now.best)}) vs ${esc(setText(prev.bestSet))} (est. ${lb(prev.best)}) — ` +
+      `<b>${signedLb(round(now.best) - round(prev.best))} lb</b>${e.verdict === 'pr' ? ' · beats your all-time best' : ''}. ` +
+      `Volume ${Math.round(now.volume).toLocaleString()} lb (${vol >= 0 ? '+' : '−'}${Math.abs(vol)}%).`;
+  };
+  return `
+    <div class="cmp-report">
+      <h3>vs last time</h3>
+      <p class="small">${tally}</p>
+      ${r.exercises.map(e => `
+        <div class="cmp ${e.verdict}">
+          <div class="row between"><b>${esc(e.name)}</b><span class="cmp-tag">${VERDICT[e.verdict]}</span></div>
+          ${e.verdict === 'new' ? '' : `<div class="cmp-sets"><span>Last · ${shortDate(e.lastDate)}</span>${sets(e.prev.sets)}</div>`}
+          <div class="cmp-sets"><span>This workout</span>${sets(e.now.sets)}</div>
+          <p class="small">${detail(e)}</p>
+        </div>`).join('')}
+    </div>`;
+}
+
 function mountPasteBox(id, existing) {
   const text = document.getElementById(`${id}-text`);
   const out = document.getElementById(`${id}-result`);
@@ -230,6 +264,8 @@ function mountPasteBox(id, existing) {
       toSave.forEach(w => loggedDates.add(w.date));
       const sets = toSave.reduce((n, w) => n + w.exercises.reduce((m, e) => m + e.sets.length, 0), 0);
       const sorted = [...toSave].sort((a, b) => a.date.localeCompare(b.date));
+      // One workout pasted -> compare it with last time. A history dump gets the plain list.
+      const report = workouts.length === 1 ? compareWorkout(toSave[0], await workoutsFor(me().id)) : null;
       out.innerHTML = `
         <div class="notice ok">
           ✓ Logged <b>${plural(toSave.length, 'workout')}</b> and <b>${plural(sets, 'set')}</b>
@@ -237,6 +273,7 @@ function mountPasteBox(id, existing) {
           ${skipped ? `<br>Skipped ${plural(skipped, 'workout')} on dates you'd already logged.` : ''}
         </div>
         ${warningList(warnings)}
+        ${report ? workoutReportHtml(report) : `
         <div class="preview-list">
           ${sorted.slice(0, 50).map(w => `
             <details class="preview-item">
@@ -244,7 +281,7 @@ function mountPasteBox(id, existing) {
               ${w.exercises.map(e => `<div class="mini"><b>${esc(e.name)}</b> ${e.sets.map(s => esc(setText(s))).join(', ')}</div>`).join('')}
             </details>`).join('')}
           ${sorted.length > 50 ? `<p class="hint">…and ${sorted.length - 50} more.</p>` : ''}
-        </div>
+        </div>`}
         <p class="hint">Something read wrong? Fix it from <a href="#/history">History</a> → the workout → Edit.</p>`;
       text.value = '';
       toast(`Logged ${plural(toSave.length, 'workout')} 💪`);
