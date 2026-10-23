@@ -88,7 +88,7 @@ export function leaderboard(profiles, allWorkouts, today = todayIso()) {
 }
 
 // Everything the crew did recently, newest first.
-export function timeline({ profiles, allWorkouts, plans, bodyweights, measurements, deloads, match, today = todayIso(), days = 30 }) {
+export function timeline({ profiles, allWorkouts, plans, bodyweights, deloads, match, today = todayIso(), days = 30 }) {
   const since = isoOf(toTime(today) - days * DAY);
   const byId = new Map(profiles.map(p => [p.id, p]));
   const events = [];
@@ -125,7 +125,6 @@ export function timeline({ profiles, allWorkouts, plans, bodyweights, measuremen
     add(p, plan.ended_on, 'plan', `finished a ${weeks}-week ${GOALS[plan.goal].label.toLowerCase()}${change}`);
     add(p, plan.started_on, 'plan', `started a ${GOALS[plan.goal].label.toLowerCase()}`);
   }
-  for (const m of measurements) add(byId.get(m.user_id), m.taken_on, 'measure', 'updated body measurements 📏');
   for (const d of deloads) add(byId.get(d.user_id), d.started_on, 'deload', 'started a deload week');
 
   // Weekly winners, posted on the Sunday each week ends.
@@ -140,6 +139,6 @@ export function timeline({ profiles, allWorkouts, plans, bodyweights, measuremen
     if (gro) add(gro.profile, sunday, 'win', `won the week for growth 📈`, { sub: `${gro.growth >= 0 ? '+' : ''}${gro.growth.toFixed(1)}% vs last time` });
   }
 
-  const order = { win: 0, max: 1, plan: 2, deload: 3, measure: 4, workout: 5 };
+  const order = { win: 0, max: 1, plan: 2, deload: 3, workout: 4 };
   return events.sort((a, b) => b.date.localeCompare(a.date) || (b.at ?? '').localeCompare(a.at ?? '') || order[a.kind] - order[b.kind]);
 }

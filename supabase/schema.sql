@@ -195,7 +195,7 @@ create policy "avatar files: owner can delete" on storage.objects
   for delete to authenticated
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
 
--- Body measurements (visible to the crew) and deload weeks.
+-- Body measurements (private to the owner) and deload weeks.
 create table public.measurements (
   id        uuid primary key default gen_random_uuid(),
   user_id   uuid not null default auth.uid() references public.profiles (id) on delete cascade,
@@ -222,8 +222,8 @@ create index deloads_user on public.deloads (user_id, started_on);
 alter table public.measurements enable row level security;
 alter table public.deloads      enable row level security;
 
-create policy "measurements: signed-in users can view" on public.measurements
-  for select to authenticated using (true);
+create policy "measurements: owner can view" on public.measurements
+  for select to authenticated using (user_id = auth.uid());
 create policy "measurements: owner can insert" on public.measurements
   for insert to authenticated with check (user_id = auth.uid());
 create policy "measurements: owner can delete" on public.measurements

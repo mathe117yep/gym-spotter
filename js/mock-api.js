@@ -243,9 +243,6 @@ export async function getMeasurements(userId) {
   return (state.measurements ?? []).filter(m => m.user_id === userId).sort((a, b) => a.taken_on.localeCompare(b.taken_on));
 }
 
-export async function getAllMeasurements() {
-  return state.measurements ?? [];
-}
 
 export async function addMeasurement(row) {
   (state.measurements ??= []).push({ id: uid(), user_id: me.id, ...row });

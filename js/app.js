@@ -600,6 +600,7 @@ function measurementsHtml(profile, list, own) {
   return `
     <section class="card" id="measurements">
       <div class="row between"><h3>Body measurements</h3>${own ? '<button class="btn small" data-open-measure>Update</button>' : ''}</div>
+      <p class="muted small">🔒 Only you can see these</p>
       ${latest ? `
         <p class="muted small">Taken ${formatDate(latest.taken_on)}${prev ? ` · changes since ${formatDate(prev.taken_on)}` : ''}${own ? ` · next check ${formatDate(isoPlus(latest.taken_on, REMIND_DAYS))}` : ''}</p>
         <div class="m-grid">
@@ -793,7 +794,7 @@ async function dashboardView(profile) {
   const own = profile.id === me().id;
   const [workouts, bodyweights, exMap, avatars, measures, deloads] = await Promise.all([
     workoutsFor(profile.id), api.getBodyweights(profile.id), exerciseMap(), avatarsFor([profile]),
-    soft(api.getMeasurements(profile.id)), soft(api.getDeloads(profile.id)),
+    own ? soft(api.getMeasurements(profile.id)) : [], soft(api.getDeloads(profile.id)),
   ]);
   const avatarUrl = avatars.get(profile.id);
   const balance = workouts.length
@@ -868,7 +869,7 @@ async function dashboardView(profile) {
     ${bw && bw.trend.length > 1 ? `<section class="card" id="weight-chart"><h3>Body weight</h3><div class="chart"><canvas id="c-weight"></canvas></div></section>` : ''}
     ${workouts.length ? `<section class="card"><h3>Weekly volume</h3><p class="hint">Total pounds moved (weight × reps), last 12 weeks.</p><div class="chart short"><canvas id="c-volume"></canvas></div></section>` : ''}
     ${balance ? balanceHtml(balance, own, profile) : ''}
-    ${measurementsHtml(profile, measures, own)}
+    ${own ? measurementsHtml(profile, measures, own) : ''}
     ${own ? measureDialogHtml(profile, lastMeasure) : ''}
     ${own && !profile.sex ? sexDialogHtml() : deload?.due && !snoozed('deload', profile.id) ? deloadDialogHtml(deload) : ''}
 
@@ -1337,13 +1338,13 @@ function timelineHtml(events, avatars) {
 }
 
 async function buddiesView() {
-  const [{ profiles, bodyweights }, allWorkouts, plans, measurements, deloads, exMap] = await Promise.all([
-    api.getBuddyData(), api.getAllWorkouts(), soft(api.listAllPlans()), soft(api.getAllMeasurements()), soft(api.getAllDeloads()), exerciseMap(),
+  const [{ profiles, bodyweights }, allWorkouts, plans, deloads, exMap] = await Promise.all([
+    api.getBuddyData(), api.getAllWorkouts(), soft(api.listAllPlans()), soft(api.getAllDeloads()), exerciseMap(),
   ]);
   const crew = profiles.filter(p => p.onboarded);
   const avatars = await avatarsFor(crew);
   const board = leaderboard(crew, allWorkouts);
-  const events = timeline({ profiles: crew, allWorkouts, plans, bodyweights, measurements, deloads, match: buildMatcher(exMap) }).slice(0, 40);
+  const events = timeline({ profiles: crew, allWorkouts, plans, bodyweights, deloads, match: buildMatcher(exMap) }).slice(0, 40);
 
   const buddies = crew.filter(p => p.id !== me().id).map(p => {
     const ws = allWorkouts.filter(w => w.user_id === p.id);

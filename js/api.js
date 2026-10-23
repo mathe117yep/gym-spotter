@@ -220,9 +220,6 @@ export async function getMeasurements(userId) {
   return check(await db.from('measurements').select('*').eq('user_id', userId).order('taken_on'));
 }
 
-export async function getAllMeasurements() {
-  return fetchAll(() => db.from('measurements').select('id, user_id, taken_on').order('id'));
-}
 
 export async function addMeasurement(row) {
   check(await db.from('measurements').insert(row));
