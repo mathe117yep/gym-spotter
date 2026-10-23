@@ -292,7 +292,12 @@ function workoutRow(w, profile) {
 // ---------------------------------------------------------------------------
 
 let exMapCache = null;
-const exerciseMap = () => (exMapCache ??= api.getExerciseMap().catch(e => { exMapCache = null; throw e; }));
+// If the shared map can't load, fall back to the built-in list rather than breaking Home.
+const exerciseMap = () => (exMapCache ??= api.getExerciseMap().catch(e => {
+  console.warn('Exercise map unavailable:', e.message);
+  exMapCache = null;
+  return [];
+}));
 
 const STATUS = {
   over: ['Overreaching', 0], under: ['Undertrained', 1], low: ['A bit low', 2], ok: ['On track', 3],
