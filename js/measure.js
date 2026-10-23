@@ -127,8 +127,11 @@ function femaleProportions(m) {
 const SCALES = {
   male: {
     levels: ['Beginner', 'Intermediate', 'Advanced', 'Elite'],
-    size: { neck: [0.22, 0.235, 0.25], chest: [0.59, 0.635, 0.68], biceps: [0.21, 0.23, 0.25], thigh: [0.33, 0.355, 0.385], calves: [0.215, 0.23, 0.245] },
-    waist: [0.48, 0.45, 0.42],          // waist ÷ height; smaller is better
+    // Elite ≈ the natural ceiling for an average frame (Casey Butt's formulas at ~10% body fat).
+    size: { neck: [0.22, 0.23, 0.24], chest: [0.59, 0.635, 0.68], biceps: [0.21, 0.23, 0.25], thigh: [0.33, 0.345, 0.365], calves: [0.215, 0.225, 0.235] },
+    // Waist ÷ height, smaller is better. Intermediate starts at the 0.50 health cutoff; a
+    // muscular core adds inches, so lean lifters with abs still rate well.
+    waist: [0.5, 0.47, 0.44],
     waistLabel: 'Waist (leanness)',
   },
   female: {
