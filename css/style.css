@@ -247,3 +247,5 @@ dialog p { margin: 10px 0 0; text-align: center; font-weight: 600; }
 .report-chip { font-size: 12px; font-weight: 600; white-space: nowrap; color: var(--accent); }
 .report-chip.warn { color: #f0883e; }
 .report-chip.bad { color: var(--bad); }
+.buddy-goal { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.goal-start { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }

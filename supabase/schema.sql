@@ -12,6 +12,7 @@ create table public.profiles (
   display_name text not null,
   onboarded    boolean not null default false,
   goal         text check (goal in ('bulk', 'cut', 'recomp')),
+  goal_started_on date,
   created_at   timestamptz not null default now()
 );
 

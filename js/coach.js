@@ -1,7 +1,7 @@
 // Feedback on weigh-ins for the body composition goal picked on the Plan tab.
 // Rates are % of body weight per week, the standard way to pace a bulk or cut so
 // you keep (or build) as much muscle as possible.
-import { weekStart, toTime } from './stats.js';
+import { weekStart, toTime, weightTrend } from './stats.js';
 
 export const GOALS = {
   bulk: {
@@ -149,3 +149,13 @@ export function recentReports(goal, bodyweights, today, weeks = 8) {
 }
 
 export const lastWeekStart = today => addDays(weekStart(today), -7);
+
+// Change in 7-day average body weight since the goal started (null change = no weigh-ins since).
+export function goalProgress(goal, startedOn, bodyweights) {
+  if (!goal || !startedOn) return null;
+  const trend = weightTrend(bodyweights);
+  const start = trend.filter(p => p.date <= startedOn).pop() ?? trend.find(p => p.date >= startedOn);
+  const latest = trend[trend.length - 1];
+  if (!start || latest.date <= start.date) return { startedOn, change: null };
+  return { startedOn, start: start.avg, current: latest.avg, change: latest.avg - start.avg };
+}

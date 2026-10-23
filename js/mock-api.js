@@ -2,7 +2,7 @@
 // this browser only. Logins: demo1 / 1111 (onboarding), lifter / 0000, buddy / 0000.
 import { todayIso, toTime } from './stats.js';
 
-const STORE = 'gymspotter-demo-v2';
+const STORE = 'gymspotter-demo-v3';
 let state;
 let me = null;
 
@@ -18,8 +18,8 @@ function shiftDays(iso, n) {
 function seed() {
   const s = { profiles: [], workouts: [], sets: [], bodyweights: [], photos: [] };
   const people = [
-    { username: 'lifter', display_name: 'Demo Lifter', bench: 255, squat: 335, bw: 196, onboarded: true, goal: 'cut' },
-    { username: 'buddy', display_name: 'Demo Buddy', bench: 205, squat: 285, bw: 178, onboarded: true },
+    { username: 'lifter', display_name: 'Demo Lifter', bench: 255, squat: 335, bw: 196, onboarded: true, goal: 'cut', started: -60 },
+    { username: 'buddy', display_name: 'Demo Buddy', bench: 205, squat: 285, bw: 178, onboarded: true, goal: 'bulk', started: -120 },
     { username: 'demo1', display_name: 'demo1', onboarded: false },
   ];
   let rand = 7;
@@ -29,7 +29,7 @@ function seed() {
 
   for (const p of people) {
     const id = uid();
-    s.profiles.push({ id, username: p.username, display_name: p.display_name, onboarded: p.onboarded, goal: p.goal ?? null });
+    s.profiles.push({ id, username: p.username, display_name: p.display_name, onboarded: p.onboarded, goal: p.goal ?? null, goal_started_on: p.started ? shiftDays(today, p.started) : null });
     if (!p.bench) continue;
     const days = 150;
     for (let d = days; d >= 1; d--) {

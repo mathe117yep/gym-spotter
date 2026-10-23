@@ -3,7 +3,7 @@ import {
   SQUAT, BENCH, key, e1rm, round, todayIso, daysAgo, sortByDate,
   exerciseSeries, liftSummary, personalRecords, weeklySummary, weightSummary,
 } from './stats.js';
-import { GOALS, targetRange, dailyRemark, recentReports, lastWeekStart } from './coach.js';
+import { GOALS, targetRange, dailyRemark, recentReports, lastWeekStart, goalProgress } from './coach.js';
 import * as charts from './charts.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
@@ -307,7 +307,8 @@ async function dashboardView(profile) {
   const html = `
     <div class="page-title">
       ${own ? `<h2>Hey ${esc(firstName)}</h2>` : `<a class="back" href="#/buddies">‹ Buddies</a><h2>${esc(profile.display_name)}</h2>`}
-      <span class="muted small">${recent.length ? `Last workout: ${relDay(recent[0].date)}` : 'No workouts yet'}${profile.goal ? ` · <span class="gold">${GOAL_WORD[profile.goal]}</span>` : ''}</span>
+      <span class="muted small">${recent.length ? `Last workout: ${relDay(recent[0].date)}` : 'No workouts yet'}</span>
+      ${profile.goal ? `<span class="muted small">${goalLine(profile, bodyweights)}</span>` : ''}
     </div>
 
     ${own ? `
@@ -532,6 +533,18 @@ async function editView(profile, id) {
 // Plan: body composition goal, weigh-in feedback and weekly reports
 // ---------------------------------------------------------------------------
 
+// "Cutting · down 15 lb total since Sep 1, 2026"
+function goalLine(profile, bodyweights) {
+  if (!profile.goal) return '';
+  const word = `<span class="gold">${GOAL_WORD[profile.goal]}</span>`;
+  const prog = goalProgress(profile.goal, profile.goal_started_on, bodyweights);
+  if (!prog) return word;
+  const since = `since ${formatDate(prog.startedOn)}`;
+  if (prog.change == null) return `${word} · started ${formatDate(prog.startedOn)}`;
+  if (Math.abs(prog.change) < 0.1) return `${word} · no change yet ${since}`;
+  return `${word} · ${prog.change > 0 ? 'up' : 'down'} ${fmtWeight(Math.abs(prog.change))} lb total ${since}`;
+}
+
 function remarkHtml(remark) {
   return remark ? `<p class="remark ${remark.tone}">${esc(remark.text)}</p>` : '';
 }
@@ -575,6 +588,11 @@ async function planView() {
               <span class="muted small">Aim to ${g.target}${current ? ` — ${targetRange(k, current)} a week for you` : ''}.</span>
             </button>`).join('')}
         </div>
+        ${goal ? `
+          <div class="goal-start">
+            <label>Started ${GOAL_WORD[goal].toLowerCase()} on<input type="date" id="goal-start" value="${esc(me().goal_started_on ?? today)}" max="${today}"></label>
+            <p class="hint">${goalLine(me(), bodyweights)}. Buddies see this on their Buddies tab.</p>
+          </div>` : ''}
       </section>
 
       <section class="card">
@@ -593,18 +611,27 @@ async function planView() {
               <span class="report-chip ${r.status}">${signedLb(r.change)} lb · ${esc(r.headline)}</span>
             </div>`).join('')}
         </section>` : ''}
-
-      <section class="card">
-        <h3>Weight progress</h3>
-        <p class="empty">Lifting programs are coming soon.</p>
-      </section>`,
+`,
     mount() {
+      document.getElementById('goal-start')?.addEventListener('change', async ev => {
+        if (!ev.target.value) return;
+        try {
+          await api.updateMyProfile({ goal_started_on: ev.target.value });
+          toast('Start date saved');
+          route();
+        } catch (e) {
+          toast(`Couldn't save: ${e.message}`);
+        }
+      });
+
       document.querySelectorAll('.goal-opt').forEach(btn => btn.addEventListener('click', async () => {
-        if (btn.dataset.goal === goal) return;
+        const next = btn.dataset.goal;
+        if (next === goal) return;
+        if (goal && !confirm(`Are you sure you want to change your Plan from ${GOALS[goal].label} to ${GOALS[next].label}?\n\nYour progress total will restart from today.`)) return;
         btn.disabled = true;
         try {
-          await api.updateMyProfile({ goal: btn.dataset.goal });
-          toast(`Goal set: ${GOALS[btn.dataset.goal].label}`);
+          await api.updateMyProfile({ goal: next, goal_started_on: today });
+          toast(`Plan set: ${GOALS[next].label}`);
           route();
         } catch (e) {
           btn.disabled = false;
@@ -625,19 +652,20 @@ async function buddiesView() {
     const ws = workouts.filter(w => w.user_id === p.id);
     const last = ws.reduce((m, w) => (w.date > m ? w.date : m), '');
     const bws = bodyweights.filter(b => b.user_id === p.id);
-    return { p, last, squat: liftSummary(ws, SQUAT), bench: liftSummary(ws, BENCH), bw: weightSummary(bws) };
+    return { p, last, bws, squat: liftSummary(ws, SQUAT), bench: liftSummary(ws, BENCH), bw: weightSummary(bws) };
   }).sort((a, b) => b.last.localeCompare(a.last) || a.p.display_name.localeCompare(b.p.display_name));
 
   const lift = s => (s ? lb((s.current ?? s.allTime).e1rm) : '—');
   return {
     html: `
       <div class="page-title"><h2>Buddies</h2><span class="muted small">Tap anyone to see their full dashboard</span></div>
-      ${buddies.length ? buddies.map(({ p, last, squat, bench, bw }) => `
+      ${buddies.length ? buddies.map(({ p, last, bws, squat, bench, bw }) => `
         <a class="card buddy" href="#/u/${encodeURIComponent(p.username)}">
           <div class="row between">
             <div class="buddy-name"><span class="avatar">${esc(p.display_name.trim()[0]?.toUpperCase() ?? '?')}</span><b>${esc(p.display_name)}</b></div>
             <span class="small ${last && daysAgo(last) <= 3 ? 'fresh' : 'muted'}">${last ? relDay(last) : 'No workouts yet'}</span>
           </div>
+          ${p.goal ? `<div class="buddy-goal">${goalLine(p, bws)}</div>` : ''}
           <div class="buddy-stats">
             <div><span class="tile-label">Squat</span><b style="color:${charts.COLORS.squat}">${lift(squat)}</b></div>
             <div><span class="tile-label">Bench</span><b style="color:${charts.COLORS.bench}">${lift(bench)}</b></div>
