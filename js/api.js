@@ -172,3 +172,13 @@ export async function addPlan(goal, started_on, ended_on) {
 export async function deletePlan(id) {
   check(await db.from('plan_history').delete().eq('id', id));
 }
+
+export async function getExerciseMap() {
+  return check(await db.from('exercise_map').select('name, display_name, primary_muscles, secondary_muscles'));
+}
+
+export async function saveExerciseMapping(name, display_name, primary_muscles, secondary_muscles) {
+  check(await db.from('exercise_map').upsert(
+    { name, display_name, primary_muscles, secondary_muscles, updated_at: new Date().toISOString() },
+    { onConflict: 'name' }));
+}

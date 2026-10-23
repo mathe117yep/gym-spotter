@@ -259,3 +259,47 @@ dialog p { margin: 10px 0 0; text-align: center; font-weight: 600; }
 .plan-done .pace, .plan-done .delta { color: var(--tone); }
 .plan-title { font-size: 16px; color: #fff; }
 .plan-title .muted { font-weight: 500; font-size: 14px; }
+
+/* Training balance */
+.alerts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap;
+  background: var(--card-2); color: var(--muted); }
+.pill.ok { color: var(--accent); }
+.pill.low { color: #e8c766; }
+.pill.under { background: rgba(255, 92, 108, 0.15); color: var(--bad); }
+.pill.over { background: rgba(240, 136, 62, 0.15); color: #f0883e; }
+.pill.flag { background: rgba(212, 175, 55, 0.12); color: var(--gold-light); }
+.unmapped { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.muscles { margin-top: 10px; }
+.muscle { border-top: 1px solid var(--line); }
+.muscle summary { display: grid; grid-template-columns: 1fr 64px 38px 96px; align-items: center; gap: 8px; padding: 10px 0; cursor: pointer; list-style: none; }
+.muscle summary::-webkit-details-marker { display: none; }
+.m-name { font-weight: 600; font-size: 14px; }
+.m-bars { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
+.m-bars .bar { flex: 1; border-radius: 1px; background: var(--muted); opacity: 0.55; }
+.m-bars .bar.ok { background: var(--accent); opacity: 0.9; }
+.m-bars .bar.high { background: var(--gold-light); opacity: 0.9; }
+.m-bars .bar.low { background: #8a7a45; opacity: 0.9; }
+.m-bars .bar.under { background: var(--bad); opacity: 0.7; }
+.m-bars .bar.over { background: #f0883e; opacity: 0.9; }
+.m-bars .bar.now { opacity: 0.45; }
+.m-now { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.m-now small { display: block; font-size: 9px; font-weight: 500; color: var(--muted); }
+.muscle .pill { justify-self: end; }
+.m-body { padding: 0 0 12px; font-size: 14px; }
+.m-body p { margin: 0 0 8px; }
+.flag-text { color: var(--gold-light); }
+.m-weeks { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin: 4px 0 10px; text-align: center; }
+.m-weeks div { background: var(--bg); border-radius: 6px; padding: 4px 0; }
+.m-weeks span { display: block; font-size: 9px; color: var(--muted); }
+.m-weeks b { font-size: 13px; font-variant-numeric: tabular-nums; }
+.remap { font-size: 12px; }
+.m-targets { margin-top: 4px; }
+.m-targets label { margin-top: 0; }
+.chip-grid { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.chip { font: inherit; font-size: 13px; padding: 7px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; }
+.chip.main { background: var(--accent); border-color: var(--accent); color: #121212; font-weight: 700; }
+.chip.helper { border-color: var(--accent); color: var(--accent); }
+.alerts { flex-direction: column; gap: 6px; }
+.alert-line { font-size: 13px; line-height: 1.6; }
+.alert-line .pill { margin-right: 4px; }

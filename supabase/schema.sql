@@ -13,6 +13,7 @@ create table public.profiles (
   onboarded    boolean not null default false,
   goal         text check (goal in ('bulk', 'cut', 'recomp')),
   goal_started_on date,
+  muscle_targets jsonb,
   created_at   timestamptz not null default now()
 );
 
@@ -64,6 +65,15 @@ create table public.plan_history (
   created_at timestamptz not null default now()
 );
 create index plan_history_user on public.plan_history (user_id, ended_on);
+
+create table public.exercise_map (
+  name              text primary key,
+  display_name      text not null,
+  primary_muscles   text[] not null,
+  secondary_muscles text[] not null default '{}',
+  updated_by        uuid default auth.uid() references public.profiles (id) on delete set null,
+  updated_at        timestamptz not null default now()
+);
 
 -- ---------------------------------------------------------------------------
 -- New login -> profile row automatically.
@@ -139,6 +149,14 @@ create policy "plan_history: owner can insert" on public.plan_history
   for insert to authenticated with check (user_id = auth.uid());
 create policy "plan_history: owner can delete" on public.plan_history
   for delete to authenticated using (user_id = auth.uid());
+
+alter table public.exercise_map enable row level security;
+create policy "exercise_map: signed-in users can view" on public.exercise_map
+  for select to authenticated using (true);
+create policy "exercise_map: signed-in users can add" on public.exercise_map
+  for insert to authenticated with check (true);
+create policy "exercise_map: signed-in users can edit" on public.exercise_map
+  for update to authenticated using (true) with check (true);
 
 create policy "photos: owner only" on public.progress_photos
   for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());

@@ -5,6 +5,8 @@ import {
 } from './stats.js';
 import { GOALS, targetRange, dailyRemark, recentReports, lastWeekStart, goalProgress, planSummary } from './coach.js';
 import * as charts from './charts.js';
+import { MUSCLES, MUSCLE_LABEL, buildMatcher, keyOf } from './muscles.js';
+import { analyzeBalance } from './balance.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
 const api = demo ? await import('./mock-api.js') : await import('./api.js');
@@ -285,9 +287,173 @@ function workoutRow(w, profile) {
     </a>`;
 }
 
+// ---------------------------------------------------------------------------
+// Training balance (under Weekly volume on every dashboard)
+// ---------------------------------------------------------------------------
+
+let exMapCache = null;
+const exerciseMap = () => (exMapCache ??= api.getExerciseMap().catch(e => { exMapCache = null; throw e; }));
+
+const STATUS = {
+  over: ['Overreaching', 0], under: ['Undertrained', 1], low: ['A bit low', 2], ok: ['On track', 3],
+  info: ['Not rated', 4], none: ['Not enough data', 5],
+};
+
+function balanceBars(m) {
+  const t = m.targets;
+  const max = Math.max(t ? t.high : 1, ...m.sets, 1);
+  return m.sets.map((v, i) => {
+    const zone = !t ? 'info' : v < t.under ? 'under' : v < t.lo ? 'low' : v > t.high ? 'over' : v > t.hi ? 'high' : 'ok';
+    return `<i class="bar ${zone}${i === m.sets.length - 1 ? ' now' : ''}" style="height:${Math.max(6, (v / max) * 100)}%"></i>`;
+  }).join('');
+}
+
+function balanceHtml(b, own, profile) {
+  // One line per kind of problem: "Undertrained — Side delts, Rear delts".
+  const groups = [
+    ['over', 'Overreaching', m => m.status === 'over'],
+    ['under', 'Undertrained', m => m.status === 'under'],
+    ['flag', 'Stacked (heavy <48h apart)', m => m.flags.some(f => f.kind === 'stacked')],
+    ['flag', 'Only hit once a week', m => m.status !== 'under' && m.flags.some(f => f.kind === 'frequency')],
+  ];
+  const alerts = groups.map(([cls, title, test]) => {
+    const names = b.muscles.filter(test).map(m => m.label);
+    return names.length ? `<div class="alert-line"><span class="pill ${cls}">${title}</span> ${names.join(', ')}</div>` : '';
+  }).filter(Boolean);
+  const weekLabels = b.weeks.map((w, i) => (i === b.weeks.length - 1 ? 'Now' : new Date(w).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })));
+  const rows = [...b.muscles].sort((x, y) => STATUS[x.status][1] - STATUS[y.status][1]);
+  const goalNote = profile.goal ? `adjusted for ${own ? 'your' : 'their'} ${GOALS[profile.goal].label.toLowerCase()}` : 'at maintenance levels (no plan picked)';
+  const n = b.unmapped.length;
+
+  return `
+    <section class="card" id="balance">
+      <h3>Training balance</h3>
+      <p class="hint">Hard sets per muscle per week (warm-ups skipped, helper muscles get half a set). Targets ${goalNote}. Tap a muscle for details.</p>
+      ${alerts.length ? `<div class="alerts">${alerts.join('')}</div>` : '<p class="small gold">Nothing flagged — every muscle is in a good spot.</p>'}
+      ${n ? `
+        <div class="notice warn">
+          ${plural(n, 'exercise')} ${n === 1 ? 'is not' : 'are not'} mapped to muscles yet, so ${n === 1 ? 'it is' : 'they are'} not counted:
+          <div class="unmapped">${b.unmapped.map(name => own
+            ? `<button class="btn small" data-map="${esc(name)}">Map “${esc(name)}”</button>`
+            : `<b>${esc(name)}</b>`).join(own ? '' : ', ')}</div>
+        </div>` : ''}
+      <div class="muscles">
+        ${rows.map(m => `
+          <details class="muscle">
+            <summary>
+              <span class="m-name">${m.label}</span>
+              <span class="m-bars" aria-hidden="true">${balanceBars(m)}</span>
+              <span class="m-now">${m.sets[m.sets.length - 1]}<small>this wk</small></span>
+              <span class="pill ${m.status}">${STATUS[m.status][0]}</span>
+            </summary>
+            <div class="m-body">
+              <p>${esc(m.reason)}</p>
+              ${m.flags.map(f => `<p class="flag-text">⚠ ${esc(f.text)}</p>`).join('')}
+              <div class="m-weeks">${m.sets.map((v, i) => `<div><span>${weekLabels[i]}</span><b>${v}</b></div>`).join('')}</div>
+              ${m.exercises.length ? `<p class="small muted">Counted from (last 2 weeks): ${m.exercises.map(e => `${esc(e.name)} <b>${e.sets}</b>${own ? ` <a href="#" class="remap" data-map="${esc(e.name)}">edit</a>` : ''}`).join(' · ')}</p>` : ''}
+              ${own && m.targets ? `
+                <div class="row m-targets" data-muscle="${m.id}">
+                  <label class="grow">Target min<input type="number" min="0" max="60" value="${m.targets.lo}"></label>
+                  <label class="grow">Target max<input type="number" min="1" max="60" value="${m.targets.hi}"></label>
+                  <button class="btn small" data-save-target>Save</button>
+                  ${m.targets.custom ? '<button class="btn small ghost" data-reset-target>Reset</button>' : ''}
+                </div>` : ''}
+            </div>
+          </details>`).join('')}
+      </div>
+      ${own ? `
+        <dialog id="map-dialog">
+          <h3 id="map-title"></h3>
+          <p class="hint">Tap a muscle once for <b class="gold">main</b> (1 set), again for <b>helper</b> (½ set), again to clear. Mappings are shared with the whole crew.</p>
+          <div class="chip-grid">${MUSCLES.map(mu => `<button type="button" class="chip" data-muscle="${mu.id}">${mu.label}</button>`).join('')}</div>
+          <p class="error-text" id="map-error"></p>
+          <div class="row"><button class="btn grow" id="map-cancel">Cancel</button><button class="btn primary grow" id="map-save">Save</button></div>
+        </dialog>` : ''}
+    </section>`;
+}
+
+function mountBalance(b, own, profile, exMap) {
+  if (!own) return;
+  const dialog = document.getElementById('map-dialog');
+  const match = buildMatcher(exMap);
+  let current = null;
+  const roles = new Map(); // muscle id -> 'main' | 'helper'
+
+  const paint = () => dialog.querySelectorAll('.chip').forEach(c => {
+    c.classList.toggle('main', roles.get(c.dataset.muscle) === 'main');
+    c.classList.toggle('helper', roles.get(c.dataset.muscle) === 'helper');
+  });
+
+  document.querySelectorAll('[data-map]').forEach(el => el.addEventListener('click', ev => {
+    ev.preventDefault();
+    current = el.dataset.map;
+    roles.clear();
+    const m = match(current);
+    if (m) {
+      m.primary.forEach(id => roles.set(id, 'main'));
+      m.secondary.forEach(id => roles.set(id, 'helper'));
+    }
+    document.getElementById('map-title').textContent = current;
+    document.getElementById('map-error').textContent = '';
+    paint();
+    dialog.showModal();
+  }));
+
+  dialog.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+    const id = c.dataset.muscle;
+    const next = { main: 'helper', helper: null }[roles.get(id)] ?? (roles.has(id) ? null : 'main');
+    if (next) roles.set(id, next); else roles.delete(id);
+    paint();
+  }));
+  document.getElementById('map-cancel').addEventListener('click', () => dialog.close());
+  document.getElementById('map-save').addEventListener('click', async ev => {
+    const primary = [...roles].filter(([, r]) => r === 'main').map(([id]) => id);
+    const secondary = [...roles].filter(([, r]) => r === 'helper').map(([id]) => id);
+    if (!primary.length) {
+      document.getElementById('map-error').textContent = 'Pick at least one main muscle.';
+      return;
+    }
+    ev.target.disabled = true;
+    try {
+      await api.saveExerciseMapping(keyOf(current), current, primary, secondary);
+      exMapCache = null;
+      dialog.close();
+      toast(`Mapped ${current}`);
+      route();
+    } catch (e) {
+      ev.target.disabled = false;
+      document.getElementById('map-error').textContent = `Couldn't save: ${e.message}`;
+    }
+  });
+
+  document.querySelectorAll('.m-targets').forEach(row => {
+    const id = row.dataset.muscle;
+    const save = async targets => {
+      const next = { ...(profile.muscle_targets ?? {}) };
+      if (targets) next[id] = targets; else delete next[id];
+      try {
+        await api.updateMyProfile({ muscle_targets: next });
+        toast(targets ? `${MUSCLE_LABEL[id]} target saved` : `${MUSCLE_LABEL[id]} target reset`);
+        route();
+      } catch (e) {
+        toast(`Couldn't save: ${e.message}`);
+      }
+    };
+    row.querySelector('[data-save-target]').addEventListener('click', () => {
+      const [lo, hi] = [...row.querySelectorAll('input')].map(i => parseInt(i.value, 10));
+      if (!(lo >= 0 && hi > lo)) return toast('Max needs to be bigger than min.');
+      save([lo, hi]);
+    });
+    row.querySelector('[data-reset-target]')?.addEventListener('click', () => save(null));
+  });
+}
+
 async function dashboardView(profile) {
   const own = profile.id === me().id;
-  const [workouts, bodyweights] = await Promise.all([workoutsFor(profile.id), api.getBodyweights(profile.id)]);
+  const [workouts, bodyweights, exMap] = await Promise.all([workoutsFor(profile.id), api.getBodyweights(profile.id), exerciseMap()]);
+  const balance = workouts.length
+    ? analyzeBalance({ workouts, goal: profile.goal, overrides: profile.muscle_targets, match: buildMatcher(exMap) })
+    : null;
   const squat = liftSummary(workouts, SQUAT);
   const bench = liftSummary(workouts, BENCH);
   const bw = weightSummary(bodyweights);
@@ -339,6 +505,7 @@ async function dashboardView(profile) {
     ${squat || bench ? `<section class="card"><h3>Squat & bench (est. 1RM)</h3><div class="chart"><canvas id="c-lifts"></canvas></div></section>` : ''}
     ${bw && bw.trend.length > 1 ? `<section class="card"><h3>Body weight</h3><div class="chart"><canvas id="c-weight"></canvas></div></section>` : ''}
     ${workouts.length ? `<section class="card"><h3>Weekly volume</h3><p class="hint">Total pounds moved (weight × reps), last 12 weeks.</p><div class="chart short"><canvas id="c-volume"></canvas></div></section>` : ''}
+    ${balance ? balanceHtml(balance, own, profile) : ''}
 
     ${prs.length ? `
       <section class="card">
@@ -409,6 +576,8 @@ async function dashboardView(profile) {
         toast('Weigh-in saved');
         route();
       });
+
+      if (balance) mountBalance(balance, own, profile, exMap);
     },
   };
 }

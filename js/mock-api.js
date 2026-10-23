@@ -207,3 +207,13 @@ export async function deletePlan(id) {
   state.plans = state.plans.filter(p => p.id !== id);
   save();
 }
+
+export async function getExerciseMap() {
+  return state.exmap ?? [];
+}
+
+export async function saveExerciseMapping(name, display_name, primary_muscles, secondary_muscles) {
+  state.exmap = (state.exmap ?? []).filter(r => r.name !== name);
+  state.exmap.push({ name, display_name, primary_muscles, secondary_muscles });
+  save();
+}
