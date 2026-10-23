@@ -357,10 +357,15 @@ function jumpTo(el) {
 }
 
 // Round profile pic, or the first letter of their name if they haven't added one.
+// Tapping one with a photo (or your own) opens it big — see the data-view-avatar handler.
 function avatarHtml(p, url, size = '') {
+  const own = p.id === me()?.id;
+  const view = url || own
+    ? ` data-view-avatar data-name="${esc(p.display_name)}"${url ? ` data-src="${esc(url)}"` : ''}${own ? ' data-own="1"' : ''}`
+    : '';
   return url
-    ? `<img class="avatar ${size}" src="${esc(url)}" alt="">`
-    : `<span class="avatar ${size}">${esc(p.display_name.trim()[0]?.toUpperCase() ?? '?')}</span>`;
+    ? `<img class="avatar ${size}"${view} src="${esc(url)}" alt="">`
+    : `<span class="avatar ${size}"${view}>${esc(p.display_name.trim()[0]?.toUpperCase() ?? '?')}</span>`;
 }
 
 // Never let a missing pic break a page.
@@ -731,7 +736,7 @@ async function dashboardView(profile) {
     ${own ? '' : '<a class="back" href="#/buddies">‹ Buddies</a>'}
     <div class="profile-head">
       ${own
-        ? `<label class="avatar-pick" title="Change profile pic">${avatarHtml(profile, avatarUrl, 'lg')}<span class="cam">📷</span><input type="file" id="avatar-file" accept="image/*" hidden></label>`
+        ? `<div class="avatar-pick" data-view-avatar data-own="1" data-name="${esc(profile.display_name)}"${avatarUrl ? ` data-src="${esc(avatarUrl)}"` : ''}>${avatarHtml(profile, avatarUrl, 'lg')}<span class="cam">📷</span></div>`
         : avatarHtml(profile, avatarUrl, 'xl')}
       <div class="page-title">
         ${own ? `<h2>Hey ${esc(firstName)}</h2>` : `<h2>${esc(profile.display_name)}</h2>`}
@@ -856,17 +861,6 @@ async function dashboardView(profile) {
         mountDeload(profile, deload);
       }
 
-      document.getElementById('avatar-file')?.addEventListener('change', async ev => {
-        const file = ev.target.files[0];
-        if (!file) return;
-        try {
-          await api.setAvatar(await squareImage(file));
-          toast('Profile pic updated');
-          route();
-        } catch (e) {
-          toast(`Upload failed: ${e.message}`);
-        }
-      });
     },
   };
 }
@@ -1309,15 +1303,132 @@ async function buddiesView() {
 // Progress pics (private) and weight log
 // ---------------------------------------------------------------------------
 
-// Profile pics: a centered square crop, small enough to load fast.
-async function squareImage(file, size = 400) {
+// Profile pic crop screen: drag to move, pinch / slider / scroll to zoom. Resolves to a
+// 400x400 JPEG of what's inside the circle, or null if cancelled.
+async function cropImage(file) {
   const img = await loadImage(file);
-  const side = Math.min(img.width, img.height);
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = Math.min(size, side);
-  canvas.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
-  return new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+  const VIEW = 280;     // on-screen size of the crop square (CSS px)
+  const OUT = 400;      // saved size
+  const MAX_ZOOM = 4;
+  return new Promise(resolve => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'cropper';
+    dlg.innerHTML = `
+      <h3>Adjust your photo</h3>
+      <p class="hint">Drag to move · pinch or slide to zoom</p>
+      <div class="crop-stage"><canvas width="${VIEW * 2}" height="${VIEW * 2}"></canvas><div class="crop-ring"></div></div>
+      <input type="range" class="crop-zoom" min="1" max="${MAX_ZOOM}" step="0.01" value="1" aria-label="Zoom">
+      <div class="row"><button class="btn grow" data-act="cancel">Cancel</button><button class="btn primary grow" data-act="save">Save</button></div>`;
+    document.body.append(dlg);
+    dlg.showModal();
+
+    const canvas = dlg.querySelector('canvas');
+    const ctx = canvas.getContext('2d');
+    const slider = dlg.querySelector('.crop-zoom');
+    const cover = Math.max(VIEW / img.width, VIEW / img.height); // zoom 1 = photo just fills the square
+    let zoom = 1, x = 0, y = 0; // photo center offset from the square's center, in CSS px
+
+    // Draw the photo at the current position onto a square canvas of `size` pixels.
+    const paint = (c, size) => {
+      const k = size / VIEW;
+      const w = img.width * cover * zoom, h = img.height * cover * zoom;
+      c.fillStyle = '#121212';
+      c.fillRect(0, 0, size, size);
+      c.drawImage(img, (VIEW / 2 + x - w / 2) * k, (VIEW / 2 + y - h / 2) * k, w * k, h * k);
+    };
+    const draw = () => {
+      // Never let the photo slide away from the edges of the square.
+      const mx = (img.width * cover * zoom - VIEW) / 2, my = (img.height * cover * zoom - VIEW) / 2;
+      x = Math.max(-mx, Math.min(mx, x));
+      y = Math.max(-my, Math.min(my, y));
+      paint(ctx, canvas.width);
+    };
+    const setZoom = z => { zoom = Math.max(1, Math.min(MAX_ZOOM, z)); slider.value = zoom; draw(); };
+
+    const pointers = new Map();
+    let lastDist = 0;
+    const dist = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+    canvas.addEventListener('pointerdown', e => {
+      canvas.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) lastDist = dist();
+    });
+    canvas.addEventListener('pointermove', e => {
+      const p = pointers.get(e.pointerId);
+      if (!p) return;
+      if (pointers.size === 1) { x += e.clientX - p.x; y += e.clientY - p.y; }
+      p.x = e.clientX; p.y = e.clientY;
+      if (pointers.size === 2) {
+        const d = dist();
+        if (lastDist) setZoom(zoom * d / lastDist);
+        lastDist = d;
+      }
+      draw();
+    });
+    const lift = e => { pointers.delete(e.pointerId); lastDist = pointers.size === 2 ? dist() : 0; };
+    canvas.addEventListener('pointerup', lift);
+    canvas.addEventListener('pointercancel', lift);
+    canvas.addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom * (e.deltaY < 0 ? 1.08 : 0.93)); }, { passive: false });
+    slider.addEventListener('input', () => setZoom(parseFloat(slider.value)));
+
+    const finish = blob => { dlg.close(); dlg.remove(); resolve(blob); };
+    dlg.addEventListener('cancel', ev => { ev.preventDefault(); finish(null); });
+    dlg.querySelector('[data-act=cancel]').addEventListener('click', () => finish(null));
+    dlg.querySelector('[data-act=save]').addEventListener('click', () => {
+      const out = document.createElement('canvas');
+      out.width = out.height = OUT;
+      paint(out.getContext('2d'), OUT);
+      out.toBlob(finish, 'image/jpeg', 0.88);
+    });
+    draw();
+  });
 }
+
+// Pick a photo, crop it, upload it.
+function changeAvatar() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    try {
+      const blob = await cropImage(file);
+      if (!blob) return;
+      await api.setAvatar(blob);
+      toast('Profile pic updated');
+      route();
+    } catch (e) {
+      toast(`Upload failed: ${e.message}`);
+    }
+  });
+  input.click();
+}
+
+// Tapping any profile photo shows it big. Your own gets a "Change photo" button.
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-view-avatar]');
+  if (!el) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const own = el.dataset.own === '1';
+  const dlg = document.createElement('dialog');
+  dlg.className = 'avatar-viewer';
+  dlg.innerHTML = `
+    ${el.dataset.src
+      ? `<img src="${esc(el.dataset.src)}" alt="${esc(el.dataset.name)}">`
+      : `<div class="avatar-big-letter">${esc(el.dataset.name.trim()[0]?.toUpperCase() ?? '?')}</div>`}
+    <p class="viewer-name">${esc(el.dataset.name)}</p>
+    ${own ? `<button class="btn primary wide" data-act="change">${el.dataset.src ? 'Change photo' : 'Add a photo'}</button>` : ''}
+    <button class="btn ghost wide" data-act="close">Close</button>`;
+  document.body.append(dlg);
+  const close = () => { dlg.close(); dlg.remove(); };
+  dlg.addEventListener('click', e => { if (e.target === dlg) close(); }); // tap outside
+  dlg.addEventListener('cancel', e => { e.preventDefault(); close(); });
+  dlg.querySelector('[data-act=close]').addEventListener('click', close);
+  dlg.querySelector('[data-act=change]')?.addEventListener('click', () => { close(); changeAvatar(); });
+  dlg.showModal();
+}, true);
 
 async function loadImage(file) {
   try {

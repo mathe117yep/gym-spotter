@@ -391,3 +391,20 @@ dialog.tall { max-height: 88vh; overflow-y: auto; width: min(92vw, 480px); }
 .deload-banner { border-color: var(--accent); }
 .deload-banner p { margin: 6px 0 0; }
 dialog ul { padding-left: 18px; }
+
+/* Profile pic: crop screen and enlarged view */
+[data-view-avatar] { cursor: pointer; }
+.cropper { width: min(92vw, 340px); text-align: center; }
+.cropper .hint { margin: 4px 0 12px; }
+.crop-stage { position: relative; width: 280px; height: 280px; margin: 0 auto; border-radius: 12px; overflow: hidden; touch-action: none; }
+.crop-stage canvas { width: 280px; height: 280px; display: block; cursor: grab; touch-action: none; }
+.crop-ring { position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.6); border: 2px solid var(--accent); pointer-events: none; }
+.crop-zoom { margin: 16px 0 4px; padding: 0; accent-color: var(--accent); }
+.avatar-viewer { width: min(88vw, 380px); text-align: center; padding: 18px; }
+.avatar-viewer img, .avatar-big-letter {
+  width: min(76vw, 320px); height: min(76vw, 320px); border-radius: 50%; object-fit: cover;
+  margin: 0 auto; display: block; border: 3px solid var(--accent);
+}
+.avatar-big-letter { display: grid; place-items: center; font-size: 120px; font-weight: 800; color: var(--accent); background: var(--card-2); }
+.viewer-name { font-size: 20px; font-weight: 700; margin: 14px 0 4px; }
+.avatar-viewer .btn.wide { margin-top: 8px; }
