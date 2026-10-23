@@ -421,3 +421,15 @@ dialog ul { padding-left: 18px; }
 .level-pill.l1 { background: rgba(224, 224, 224, 0.12); color: var(--text); }
 .level-pill.l2 { background: rgba(212, 175, 55, 0.15); color: var(--accent); }
 .level-pill.l3 { background: linear-gradient(135deg, var(--gold-light), var(--accent) 55%, var(--gold-dark)); color: #121212; }
+
+/* Male/female question, pinned near the top */
+dialog.top-sheet { margin-top: calc(env(safe-area-inset-top) + 24px); width: min(92vw, 400px); }
+dialog.top-sheet p { margin: 8px 0 4px; }
+
+/* Women's level pills: same tiers, more sparkle */
+.level-pill.f { white-space: normal; text-align: center; line-height: 1.2; max-width: 150px; text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+.level-pill.f.l0 { background: var(--card-2); color: var(--muted); }
+.level-pill.f.l1 { background: rgba(255, 138, 201, 0.15); color: #ff9fd2; }
+.level-pill.f.l2 { background: linear-gradient(135deg, #ff7ac3, #e055a6); color: #fff; }
+.level-pill.f.l3 { background: linear-gradient(135deg, #ff9fd2, #ff6fb5 45%, var(--accent)); color: #fff; box-shadow: 0 0 12px rgba(255, 111, 181, 0.45); }
+.rating-row { grid-template-columns: 1fr auto minmax(96px, auto); }

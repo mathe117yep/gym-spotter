@@ -9,7 +9,7 @@ import { MUSCLES, MUSCLE_LABEL, buildMatcher, keyOf } from './muscles.js';
 import { analyzeBalance } from './balance.js';
 import { compareWorkout } from './compare.js';
 import { leaderboard, timeline } from './social.js';
-import { FIELDS, TIPS, REMIND_DAYS, LEVELS, proportions, ratings } from './measure.js';
+import { fieldsFor, ALL_FIELDS, TIPS, REMIND_DAYS, proportions, ratings } from './measure.js';
 import { deloadCheck, DELOAD_DAYS } from './deload.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
@@ -587,8 +587,11 @@ const isoPlus = (iso, days) => {
 function measurementsHtml(profile, list, own) {
   const latest = list[list.length - 1];
   const prev = list[list.length - 2];
-  const props = latest ? proportions(latest, profile.height_in) : [];
-  const rated = latest ? ratings(latest, profile.height_in) : null;
+  const props = latest ? proportions(latest, profile.height_in, profile.sex) : [];
+  const rated = latest ? ratings(latest, profile.height_in, profile.sex) : null;
+  const female = profile.sex === 'female';
+  // Their current set of measurements first, then anything else an older check-in has.
+  const shown = [...fieldsFor(profile.sex), ...ALL_FIELDS.filter(f => !fieldsFor(profile.sex).some(g => g.id === f.id))];
   const delta = id => {
     if (!prev || latest[id] == null || prev[id] == null) return '';
     const d = latest[id] - prev[id];
@@ -600,19 +603,21 @@ function measurementsHtml(profile, list, own) {
       ${latest ? `
         <p class="muted small">Taken ${formatDate(latest.taken_on)}${prev ? ` · changes since ${formatDate(prev.taken_on)}` : ''}${own ? ` · next check ${formatDate(isoPlus(latest.taken_on, REMIND_DAYS))}` : ''}</p>
         <div class="m-grid">
-          ${FIELDS.filter(f => latest[f.id] != null).map(f => `<div><span class="tile-label">${f.label}</span><b>${inches(latest[f.id])}</b>${delta(f.id)}</div>`).join('')}
+          ${shown.filter(f => latest[f.id] != null).map(f => `<div><span class="tile-label">${f.label}</span><b>${inches(latest[f.id])}</b>${delta(f.id)}</div>`).join('')}
           ${profile.height_in ? `<div><span class="tile-label">Height</span><b>${Math.floor(profile.height_in / 12)}'${fmtWeight(profile.height_in % 12)}"</b></div>` : ''}
         </div>
         ${rated ? `
           <div class="ratings">
-            <div class="row between"><b>Size for ${own ? 'your' : 'their'} height</b><span class="level-pill l${rated.overall}">Overall: ${LEVELS[rated.overall]}</span></div>
+            <div class="row between"><b>Size for ${own ? 'your' : 'their'} height</b><span class="level-pill l${rated.overall}${female ? ' f' : ''}">${female ? '' : 'Overall: '}${rated.levels[rated.overall]}</span></div>
             ${rated.items.map(r => `
               <div class="rating-row">
                 <span class="r-label">${r.label}<small>${r.next}</small></span>
                 <span class="r-value">${r.value}</span>
-                <span class="level-pill l${r.level}">${LEVELS[r.level]}</span>
+                <span class="level-pill l${r.level}${female ? ' f' : ''}">${rated.levels[r.level]}</span>
               </div>`).join('')}
-            <p class="hint">Rough benchmarks for natural male lifters, scaled to height (flexed arm, everything else relaxed). Extra body fat makes the size measurements bigger but counts against you on waist and V-taper.</p>
+            <p class="hint">${female
+              ? 'Rough benchmarks for women who lift, scaled to height (flexed arm, everything else relaxed). Bust isn\'t rated.'
+              : 'Rough benchmarks for natural male lifters, scaled to height (flexed arm, everything else relaxed). Extra body fat makes the size measurements bigger but counts against you on waist and V-taper.'}</p>
           </div>`
           : own && !profile.height_in ? '<p class="hint">Add your height (Update → Height) to get Beginner–Elite ratings for each measurement.</p>' : ''}
         ${props.length ? `
@@ -627,7 +632,7 @@ function measurementsHtml(profile, list, own) {
           <details class="m-history"><summary class="small muted">All check-ins (${list.length})</summary>
             ${[...list].reverse().map(m => `
               <div class="list-row static"><span>${formatDate(m.taken_on)}</span>
-                <span class="small muted">${FIELDS.filter(f => m[f.id] != null).map(f => `${f.label.toLowerCase()} ${inches(m[f.id])}`).join(' · ')}
+                <span class="small muted">${shown.filter(f => m[f.id] != null).map(f => `${f.label.toLowerCase()} ${inches(m[f.id])}`).join(' · ')}
                 <button class="icon-btn" data-del-measure="${m.id}" aria-label="Delete">✕</button></span></div>`).join('')}
           </details>` : ''}`
       : `<p class="empty">${own ? 'No measurements yet. Tap Update — it takes 2 minutes with a tape measure.' : 'No measurements yet.'}</p>`}
@@ -647,7 +652,13 @@ function measureDialogHtml(profile, last) {
           <label class="grow">Height (inches)<input type="number" name="in" inputmode="decimal" min="0" max="11.5" step="0.5" placeholder="10" value="${profile.height_in ? fmtWeight(profile.height_in % 12) : ''}"></label>
         </div>
         <p class="hint">Height drives your size ratings and waist-to-height ratio.</p>
-        ${FIELDS.map(f => `
+        <label>Rate my measurements as
+          <select name="sex" id="measure-sex">
+            <option value="male"${profile.sex !== 'female' ? ' selected' : ''}>Male</option>
+            <option value="female"${profile.sex === 'female' ? ' selected' : ''}>Female</option>
+          </select>
+        </label>
+        ${fieldsFor(profile.sex).map(f => `
           <div class="m-field">
             <label>${f.label} (in)<input type="number" name="${f.id}" inputmode="decimal" step="0.25" min="5" max="80" placeholder="${last?.[f.id] != null ? fmtWeight(last[f.id]) : ''}"></label>
             <details><summary class="small muted">How?</summary><p class="small">${esc(f.how)}</p></details>
@@ -667,7 +678,7 @@ function mountMeasurements(profile) {
     ev.preventDefault();
     const form = ev.target;
     const row = { taken_on: todayIso() };
-    for (const f of FIELDS) {
+    for (const f of fieldsFor(profile.sex)) {
       const v = parseFloat(form.elements[f.id].value);
       if (v > 0) row[f.id] = v;
     }
@@ -687,6 +698,16 @@ function mountMeasurements(profile) {
       err.textContent = `Couldn't save: ${e.message}`;
     }
   });
+  document.getElementById('measure-sex').addEventListener('change', async ev => {
+    try {
+      await api.updateMyProfile({ sex: ev.target.value });
+      dialog.close();
+      toast(`Now rating as ${ev.target.value}`);
+      route();
+    } catch (e) {
+      toast(`Couldn't save: ${e.message}`);
+    }
+  });
   document.querySelectorAll('[data-del-measure]').forEach(b => b.addEventListener('click', async () => {
     if (!confirm('Delete this check-in?')) return;
     await api.deleteMeasurement(b.dataset.delMeasure);
@@ -696,6 +717,34 @@ function mountMeasurements(profile) {
     snooze('measure', profile.id, 14);
     ev.target.closest('.card').remove();
   });
+}
+
+// Asked once, at the very top of Home. Only changes how body measurements are rated.
+function sexDialogHtml() {
+  return `
+    <dialog id="sex-dialog" class="top-sheet">
+      <h3>Quick question 👋</h3>
+      <p class="small">Are you male or female? This only changes how your body measurements and proportions are rated — nothing else.</p>
+      <div class="row"><button class="btn grow" data-sex="male">Male</button><button class="btn grow" data-sex="female">Female</button></div>
+    </dialog>`;
+}
+
+function mountSexQuestion() {
+  const dialog = document.getElementById('sex-dialog');
+  if (!dialog) return;
+  dialog.addEventListener('cancel', ev => ev.preventDefault()); // answer it to close it
+  dialog.querySelectorAll('[data-sex]').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await api.updateMyProfile({ sex: btn.dataset.sex });
+      dialog.close();
+      toast(btn.dataset.sex === 'female' ? 'Got it, queen 👑' : 'Got it 💪');
+      route();
+    } catch (e) {
+      dialog.close(); // never trap anyone on Home; it simply asks again next time
+      toast(`Couldn't save: ${e.message}`);
+    }
+  }));
+  dialog.showModal();
 }
 
 function deloadDialogHtml(check) {
@@ -819,7 +868,7 @@ async function dashboardView(profile) {
     ${balance ? balanceHtml(balance, own, profile) : ''}
     ${measurementsHtml(profile, measures, own)}
     ${own ? measureDialogHtml(profile, lastMeasure) : ''}
-    ${deload?.due && !snoozed('deload', profile.id) ? deloadDialogHtml(deload) : ''}
+    ${own && !profile.sex ? sexDialogHtml() : deload?.due && !snoozed('deload', profile.id) ? deloadDialogHtml(deload) : ''}
 
     ${prs.length ? `
       <section class="card">
@@ -895,6 +944,7 @@ async function dashboardView(profile) {
       if (own) {
         mountMeasurements(profile);
         mountDeload(profile, deload);
+        mountSexQuestion();
       }
 
     },

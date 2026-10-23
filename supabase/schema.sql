@@ -16,6 +16,7 @@ create table public.profiles (
   muscle_targets jsonb,
   avatar_path  text,
   height_in    numeric,
+  sex          text check (sex in ('male', 'female')),
   created_at   timestamptz not null default now()
 );
 
@@ -202,6 +203,7 @@ create table public.measurements (
   neck      numeric,
   chest     numeric,
   waist     numeric,
+  hips      numeric,
   biceps    numeric,
   thigh     numeric,
   calves    numeric,
