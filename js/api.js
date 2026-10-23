@@ -182,3 +182,23 @@ export async function saveExerciseMapping(name, display_name, primary_muscles, s
     { name, display_name, primary_muscles, secondary_muscles, updated_at: new Date().toISOString() },
     { onConflict: 'name' }));
 }
+
+// Profile pics live in the private "avatars" bucket; signed links are reused for an hour.
+const avatarLinks = new Map();
+
+export async function avatarUrls(profiles) {
+  const need = profiles.map(p => p.avatar_path).filter(p => p && !avatarLinks.has(p));
+  if (need.length) {
+    const signed = check(await db.storage.from('avatars').createSignedUrls([...new Set(need)], 3600));
+    for (const s of signed) if (s.signedUrl) avatarLinks.set(s.path, s.signedUrl);
+  }
+  return new Map(profiles.filter(p => p.avatar_path).map(p => [p.id, avatarLinks.get(p.avatar_path)]));
+}
+
+export async function setAvatar(blob) {
+  const old = me.avatar_path;
+  const path = `${me.id}/${Date.now()}.jpg`;
+  check(await db.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg' }));
+  await updateMyProfile({ avatar_path: path });
+  if (old) await db.storage.from('avatars').remove([old]);
+}

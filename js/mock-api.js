@@ -217,3 +217,15 @@ export async function saveExerciseMapping(name, display_name, primary_muscles, s
   state.exmap.push({ name, display_name, primary_muscles, secondary_muscles });
   save();
 }
+
+const avatarBlobs = new Map();
+
+export async function avatarUrls(profiles) {
+  return new Map(profiles.filter(p => avatarBlobs.has(p.avatar_path)).map(p => [p.id, avatarBlobs.get(p.avatar_path)]));
+}
+
+export async function setAvatar(blob) {
+  const path = `${me.id}/${Date.now()}.jpg`;
+  avatarBlobs.set(path, URL.createObjectURL(blob));
+  me.avatar_path = path;
+}

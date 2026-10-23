@@ -3,6 +3,7 @@
 //   Oct 22, 2026            <- date line starts a workout
 //   Bench Press             <- exercise name
 //   300 x 1 NEW MAX         <- weight x reps, then an optional note
+//   10                      <- just reps = bodyweight set (same as 0 x 10)
 //   Logged using RepCount   <- ignored
 
 const MONTHS = {
@@ -16,6 +17,7 @@ const NAMED_DATE = new RegExp(`^${WEEKDAY}([a-z]{3,9})\\.?\\s+(\\d{1,2})(?:st|nd
 const SLASH_DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/;
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const SET_LINE = /^(\d+(?:\.\d+)?)\s*(?:lbs?)?\s*[x×*]\s*(\d+)(?![\d.])\s*(.*)$/i;
+const REPS_ONLY = /^(\d+)(?:\s+(.*))?$/;
 const IGNORED = /^logged (using|with)\b/i;
 
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -65,7 +67,10 @@ export function parseWorkouts(text) {
       return;
     }
 
-    const set = line.match(SET_LINE);
+    // RepCount writes some bodyweight sets as just the reps ("10"), so a bare number is
+    // 0 lb x that many reps. An exercise name is never just a number.
+    const bare = line.match(REPS_ONLY);
+    const set = line.match(SET_LINE) ?? (bare && [line, '0', bare[1], bare[2] ?? '']);
     if (set) {
       if (!workout) {
         warnings.push(`Line ${lineNo}: "${line}" comes before any date, so it was skipped.`);

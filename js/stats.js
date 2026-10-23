@@ -125,3 +125,20 @@ export function weightSummary(bodyweights) {
 }
 
 export function round(n) { return n == null ? null : Math.round(n); }
+
+// Heaviest single (weight x 1) ever logged for the exercise: an actually tested max, not an estimate.
+export function testedMax(workouts, exerciseKey) {
+  let best = null;
+  for (const w of workouts) {
+    for (const e of w.exercises) {
+      if (key(e.name) !== exerciseKey) continue;
+      for (const s of e.sets) {
+        if (s.reps !== 1 || s.weight <= 0) continue;
+        if (!best || s.weight > best.weight || (s.weight === best.weight && w.date < best.date)) {
+          best = { weight: s.weight, date: w.date, workoutId: w.id };
+        }
+      }
+    }
+  }
+  return best;
+}

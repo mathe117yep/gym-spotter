@@ -1,7 +1,7 @@
 import { parseWorkouts, workoutToText, formatDate } from './parser.js';
 import {
   SQUAT, BENCH, key, e1rm, round, todayIso, daysAgo, sortByDate,
-  exerciseSeries, liftSummary, personalRecords, weeklySummary, weightSummary,
+  exerciseSeries, liftSummary, personalRecords, weeklySummary, weightSummary, testedMax,
 } from './stats.js';
 import { GOALS, targetRange, dailyRemark, recentReports, lastWeekStart, goalProgress, planSummary } from './coach.js';
 import * as charts from './charts.js';
@@ -10,6 +10,10 @@ import { analyzeBalance } from './balance.js';
 import { compareWorkout } from './compare.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
+
+// iPhone Safari ignores user-scalable=no, so block pinch-zoom gestures directly.
+for (const ev of ['gesturestart', 'gesturechange']) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 const api = demo ? await import('./mock-api.js') : await import('./api.js');
 
 const view = document.getElementById('view');
@@ -116,6 +120,10 @@ function paint(token, { html, mount }, showChrome) {
   view.innerHTML = html;
   window.scrollTo(0, 0);
   mount?.();
+  if (pendingJump) {
+    document.getElementById(pendingJump)?.scrollIntoView({ block: 'start' });
+    pendingJump = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -300,19 +308,60 @@ function mountPasteBox(id, existing) {
 // Dashboard (yours or a buddy's)
 // ---------------------------------------------------------------------------
 
-function liftTile(label, summary, color) {
-  if (!summary) return `<div class="tile"><span class="tile-label">${label} e1RM</span><span class="tile-value muted">—</span><span class="tile-sub">Nothing logged yet</span></div>`;
-  const { current, allTime } = summary;
-  const shown = current ?? allTime;
-  const s = shown.bestSet;
+const estOf = summary => (summary ? lb((summary.current ?? summary.allTime).e1rm) : null);
+
+// Profiles show actual tested maxes (a logged single); estimates stay on the charts.
+function maxTile(label, tested, summary, color, profile) {
+  const est = estOf(summary);
+  if (!tested) {
+    return `
+      <div class="tile" style="--accent:${color}">
+        <span class="tile-label">${label} max</span>
+        <span class="tile-value muted small-value">No tested max yet</span>
+        <span class="tile-sub">${est ? `est. ${est} lb` : 'Log a single (weight x 1) to set one'}</span>
+      </div>`;
+  }
   return `
-    <div class="tile" style="--accent:${color}">
-      <span class="tile-label">${label} e1RM</span>
-      <span class="tile-value">${lb(shown.e1rm)}<small> lb</small></span>
-      <span class="tile-sub">${current ? `${esc(setText(s))} · ${relDay(shown.date)}` : `Best ever · ${formatDate(allTime.date)}`}</span>
-      ${current && round(allTime.e1rm) > round(current.e1rm) ? `<span class="tile-sub">All-time ${lb(allTime.e1rm)} lb</span>` : ''}
-    </div>`;
+    <a class="tile tap" style="--accent:${color}" href="#/u/${encodeURIComponent(profile.username)}/w/${tested.workoutId}">
+      <span class="tile-label">${label} max</span>
+      <span class="tile-value">${fmtWeight(tested.weight)}<small> lb</small></span>
+      <span class="tile-sub">Tested ${formatDate(tested.date)} ›</span>
+      ${est ? `<span class="tile-sub">est. ${est} lb</span>` : ''}
+    </a>`;
 }
+
+// Tapping something with data-jump scrolls to that section (on another page first if data-href is set).
+let pendingJump = null;
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-jump]');
+  if (!el) return;
+  ev.preventDefault();
+  const target = el.dataset.jump;
+  if (el.dataset.href && location.hash !== el.dataset.href) {
+    pendingJump = target;
+    location.hash = el.dataset.href;
+  } else {
+    jumpTo(document.getElementById(target));
+  }
+});
+
+// Smooth scroll, falling back to an instant jump on browsers that don't animate it.
+function jumpTo(el) {
+  if (!el) return;
+  const before = window.scrollY;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setTimeout(() => { if (window.scrollY === before) el.scrollIntoView({ block: 'start' }); }, 350);
+}
+
+// Round profile pic, or the first letter of their name if they haven't added one.
+function avatarHtml(p, url, size = '') {
+  return url
+    ? `<img class="avatar ${size}" src="${esc(url)}" alt="">`
+    : `<span class="avatar ${size}">${esc(p.display_name.trim()[0]?.toUpperCase() ?? '?')}</span>`;
+}
+
+// Never let a missing pic break a page.
+const avatarsFor = profiles => api.avatarUrls(profiles).catch(() => new Map());
 
 function workoutRow(w, profile) {
   const names = w.exercises.map(e => e.name);
@@ -492,7 +541,10 @@ function mountBalance(b, own, profile, exMap) {
 
 async function dashboardView(profile) {
   const own = profile.id === me().id;
-  const [workouts, bodyweights, exMap] = await Promise.all([workoutsFor(profile.id), api.getBodyweights(profile.id), exerciseMap()]);
+  const [workouts, bodyweights, exMap, avatars] = await Promise.all([
+    workoutsFor(profile.id), api.getBodyweights(profile.id), exerciseMap(), avatarsFor([profile]),
+  ]);
+  const avatarUrl = avatars.get(profile.id);
   const balance = workouts.length
     ? analyzeBalance({ workouts, goal: profile.goal, overrides: profile.muscle_targets, match: buildMatcher(exMap) })
     : null;
@@ -513,10 +565,16 @@ async function dashboardView(profile) {
     : null;
 
   const html = `
-    <div class="page-title">
-      ${own ? `<h2>Hey ${esc(firstName)}</h2>` : `<a class="back" href="#/buddies">‹ Buddies</a><h2>${esc(profile.display_name)}</h2>`}
-      <span class="muted small">${recent.length ? `Last workout: ${relDay(recent[0].date)}` : 'No workouts yet'}</span>
-      ${profile.goal ? `<span class="muted small">${goalLine(profile, bodyweights)}</span>` : ''}
+    ${own ? '' : '<a class="back" href="#/buddies">‹ Buddies</a>'}
+    <div class="profile-head">
+      ${own
+        ? `<label class="avatar-pick" title="Change profile pic">${avatarHtml(profile, avatarUrl, 'lg')}<span class="cam">📷</span><input type="file" id="avatar-file" accept="image/*" hidden></label>`
+        : avatarHtml(profile, avatarUrl, 'xl')}
+      <div class="page-title">
+        ${own ? `<h2>Hey ${esc(firstName)}</h2>` : `<h2>${esc(profile.display_name)}</h2>`}
+        <span class="muted small">${recent.length ? `Last workout: ${relDay(recent[0].date)}` : 'No workouts yet'}</span>
+        ${profile.goal ? `<span class="muted small">${goalLine(profile, bodyweights)}</span>` : ''}
+      </div>
     </div>
 
     ${own ? `
@@ -530,22 +588,22 @@ async function dashboardView(profile) {
       ${todayBw && mondayReport ? `<section class="card"><div class="row between"><h3>Weekly report</h3><a class="small" href="#/plan">Plan ›</a></div>${reportHtml(mondayReport)}</section>` : ''}` : ''}
 
     <div class="tiles">
-      ${liftTile('Squat', squat, charts.COLORS.squat)}
-      ${liftTile('Bench', bench, charts.COLORS.bench)}
-      <div class="tile" style="--accent:${charts.COLORS.weight}">
+      ${maxTile('Squat', testedMax(workouts, SQUAT), squat, charts.COLORS.squat, profile)}
+      ${maxTile('Bench', testedMax(workouts, BENCH), bench, charts.COLORS.bench, profile)}
+      <${bw && bw.trend.length > 1 ? 'button data-jump="weight-chart" class="tile tap"' : 'div class="tile"'} style="--accent:${charts.COLORS.weight}">
         <span class="tile-label">Body weight</span>
         <span class="tile-value">${bw ? fmtWeight(bw.latest.avg) : '—'}<small>${bw ? ' lb' : ''}</small></span>
         <span class="tile-sub">${bw ? `7-day avg${bw.change30 != null ? ` · ${bw.change30 >= 0 ? '+' : ''}${fmtWeight(bw.change30)} in 30d` : ''}` : 'No weigh-ins yet'}</span>
-      </div>
-      <div class="tile">
+      </${bw && bw.trend.length > 1 ? 'button' : 'div'}>
+      <button class="tile tap" data-jump="recent">
         <span class="tile-label">Workouts</span>
         <span class="tile-value">${last30}</span>
         <span class="tile-sub">last 30 days · ${workouts.length} total</span>
-      </div>
+      </button>
     </div>
 
     ${squat || bench ? `<section class="card"><h3>Squat & bench (est. 1RM)</h3><div class="chart"><canvas id="c-lifts"></canvas></div></section>` : ''}
-    ${bw && bw.trend.length > 1 ? `<section class="card"><h3>Body weight</h3><div class="chart"><canvas id="c-weight"></canvas></div></section>` : ''}
+    ${bw && bw.trend.length > 1 ? `<section class="card" id="weight-chart"><h3>Body weight</h3><div class="chart"><canvas id="c-weight"></canvas></div></section>` : ''}
     ${workouts.length ? `<section class="card"><h3>Weekly volume</h3><p class="hint">Total pounds moved (weight × reps), last 12 weeks.</p><div class="chart short"><canvas id="c-volume"></canvas></div></section>` : ''}
     ${balance ? balanceHtml(balance, own, profile) : ''}
 
@@ -565,7 +623,7 @@ async function dashboardView(profile) {
         ${prs.length > 8 ? '<button class="btn small" id="pr-more">Show all</button>' : ''}
       </section>` : ''}
 
-    <section class="card">
+    <section class="card" id="recent">
       <div class="row between"><h3>Recent workouts</h3>${recent.length > 5 ? `<a class="small" href="${base}/history">See all ›</a>` : ''}</div>
       ${recent.length ? recent.slice(0, 5).map(w => workoutRow(w, profile)).join('') : `<p class="empty">${own ? 'Nothing yet — head to the <a href="#/log">Log</a> tab and paste a workout.' : 'No workouts logged yet.'}</p>`}
     </section>`;
@@ -620,6 +678,18 @@ async function dashboardView(profile) {
       });
 
       if (balance) mountBalance(balance, own, profile, exMap);
+
+      document.getElementById('avatar-file')?.addEventListener('change', async ev => {
+        const file = ev.target.files[0];
+        if (!file) return;
+        try {
+          await api.setAvatar(await squareImage(file));
+          toast('Profile pic updated');
+          route();
+        } catch (e) {
+          toast(`Upload failed: ${e.message}`);
+        }
+      });
     },
   };
 }
@@ -918,22 +988,27 @@ async function planView() {
 
 async function buddiesView() {
   const { profiles, workouts, bodyweights } = await api.getBuddyData();
+  const avatars = await avatarsFor(profiles);
   const buddies = profiles.filter(p => p.id !== me().id && p.onboarded).map(p => {
     const ws = workouts.filter(w => w.user_id === p.id);
     const last = ws.reduce((m, w) => (w.date > m ? w.date : m), '');
     const bws = bodyweights.filter(b => b.user_id === p.id);
-    return { p, last, bws, squat: liftSummary(ws, SQUAT), bench: liftSummary(ws, BENCH), bw: weightSummary(bws) };
+    return {
+      p, last, bws, bw: weightSummary(bws),
+      squat: { tested: testedMax(ws, SQUAT), est: estOf(liftSummary(ws, SQUAT)) },
+      bench: { tested: testedMax(ws, BENCH), est: estOf(liftSummary(ws, BENCH)) },
+    };
   }).sort((a, b) => b.last.localeCompare(a.last) || a.p.display_name.localeCompare(b.p.display_name));
 
-  const lift = s => (s ? lb((s.current ?? s.allTime).e1rm) : '—');
+  const lift = l => (l.tested ? fmtWeight(l.tested.weight) : `—${l.est ? `<small>est. ${l.est}</small>` : ''}`);
   return {
     html: `
       <div class="page-title"><h2>Buddies</h2><span class="muted small">Tap anyone to see their full dashboard</span></div>
       ${buddies.length ? buddies.map(({ p, last, bws, squat, bench, bw }) => `
         <a class="card buddy" href="#/u/${encodeURIComponent(p.username)}">
           <div class="row between">
-            <div class="buddy-name"><span class="avatar">${esc(p.display_name.trim()[0]?.toUpperCase() ?? '?')}</span><b>${esc(p.display_name)}</b></div>
-            <span class="small ${last && daysAgo(last) <= 3 ? 'fresh' : 'muted'}">${last ? relDay(last) : 'No workouts yet'}</span>
+            <div class="buddy-name">${avatarHtml(p, avatars.get(p.id))}<b>${esc(p.display_name)}</b></div>
+            <span class="small ${last && daysAgo(last) <= 3 ? 'fresh' : 'muted'}"${last ? ` data-jump="recent" data-href="#/u/${encodeURIComponent(p.username)}"` : ''}>${last ? `${relDay(last)} ›` : 'No workouts yet'}</span>
           </div>
           ${p.goal ? `<div class="buddy-goal">${goalLine(p, bws)}</div>` : ''}
           <div class="buddy-stats">
@@ -943,7 +1018,7 @@ async function buddiesView() {
           </div>
         </a>`).join('')
         : '<p class="empty">No buddies yet. Once Eli adds accounts for the crew, they show up here.</p>'}
-      <p class="hint center">Squat & bench are estimated 1-rep maxes (best in the last 90 days). Weight is a 7-day average.</p>`,
+      <p class="hint center">Squat &amp; bench are tested maxes (a logged single, weight x 1), with the estimate shown when there isn't one yet. Weight is a 7-day average.</p>`,
   };
 }
 
@@ -951,18 +1026,31 @@ async function buddiesView() {
 // Progress pics (private) and weight log
 // ---------------------------------------------------------------------------
 
-async function shrinkImage(file, maxSide = 1400) {
-  let img;
+// Profile pics: a centered square crop, small enough to load fast.
+async function squareImage(file, size = 400) {
+  const img = await loadImage(file);
+  const side = Math.min(img.width, img.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = Math.min(size, side);
+  canvas.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
+  return new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+}
+
+async function loadImage(file) {
   try {
-    img = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    return await createImageBitmap(file, { imageOrientation: 'from-image' });
   } catch {
-    img = await new Promise((res, rej) => {
+    return new Promise((res, rej) => {
       const el = new Image();
       el.onload = () => res(el);
       el.onerror = () => rej(new Error("Couldn't read that image."));
       el.src = URL.createObjectURL(file);
     });
   }
+}
+
+async function shrinkImage(file, maxSide = 1400) {
+  const img = await loadImage(file);
   const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(img.width * scale);
