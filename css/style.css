@@ -8,8 +8,13 @@
   --accent: #d4af37;
   --gold-light: #f3d77a;
   --gold-dark: #a8862a;
-  --good: #d4af37;
-  --bad: #ff5c6c;
+  /* Performance colors: how well something is going. Gold stays the brand/trophy color. */
+  --great: #2fbf71;      /* elite / top tier */
+  --good: #4cd97b;       /* on track, improving */
+  --good-light: #a3e67a; /* advanced */
+  --okay: #f5c542;       /* a bit low, intermediate */
+  --warn: #f0883e;       /* caution: off pace, overreaching, beginner */
+  --bad: #ff5c6c;        /* undertrained, wrong direction */
   --radius: 14px;
   --nav-h: 64px;
   color-scheme: dark;
@@ -233,10 +238,10 @@ dialog p { margin: 10px 0 0; text-align: center; font-weight: 600; }
 .goal-name { font-weight: 700; font-size: 17px; color: #fff; display: flex; align-items: center; gap: 8px; }
 
 .remark { margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--card-2); font-size: 14px; border-left: 3px solid var(--muted); }
-.remark.good { border-left-color: var(--accent); }
+.remark.good { border-left-color: var(--good); }
 
-.report { --tone: var(--accent); border-left: 3px solid var(--tone); padding-left: 12px; }
-.report.warn { --tone: #f0883e; }
+.report { --tone: var(--good); border-left: 3px solid var(--tone); padding-left: 12px; }
+.report.warn { --tone: var(--warn); }
 .report.bad { --tone: var(--bad); }
 .report-head { color: var(--tone); font-size: 17px; }
 .report p { margin: 10px 0 0; }
@@ -244,16 +249,16 @@ dialog p { margin: 10px 0 0; text-align: center; font-weight: 600; }
 .report-nums div { display: flex; flex-direction: column; }
 .report-nums b { font-size: 19px; font-variant-numeric: tabular-nums; }
 .report-nums .delta { color: var(--tone); }
-.report-chip { font-size: 12px; font-weight: 600; white-space: nowrap; color: var(--accent); }
-.report-chip.warn { color: #f0883e; }
+.report-chip { font-size: 12px; font-weight: 600; white-space: nowrap; color: var(--good); }
+.report-chip.warn { color: var(--warn); }
 .report-chip.bad { color: var(--bad); }
 .buddy-goal { font-size: 13px; color: var(--muted); margin-top: 8px; }
 .goal-start { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
 .goal-start .btn { margin-top: 4px; }
 .plan-done { --tone: var(--muted); border-left: 3px solid var(--tone); padding: 2px 0 2px 12px; margin-top: 14px; }
 .plan-done:first-of-type { margin-top: 4px; }
-.plan-done.good { --tone: var(--accent); }
-.plan-done.warn { --tone: #f0883e; }
+.plan-done.good { --tone: var(--good); }
+.plan-done.warn { --tone: var(--warn); }
 .plan-done.bad { --tone: var(--bad); }
 .plan-done p { margin: 8px 0 0; }
 .plan-done .pace, .plan-done .delta { color: var(--tone); }
@@ -264,11 +269,11 @@ dialog p { margin: 10px 0 0; text-align: center; font-weight: 600; }
 .alerts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
 .pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap;
   background: var(--card-2); color: var(--muted); }
-.pill.ok { color: var(--accent); }
-.pill.low { color: #e8c766; }
+.pill.ok { background: rgba(76, 217, 123, 0.14); color: var(--good); }
+.pill.low { background: rgba(245, 197, 66, 0.14); color: var(--okay); }
 .pill.under { background: rgba(255, 92, 108, 0.15); color: var(--bad); }
-.pill.over { background: rgba(240, 136, 62, 0.15); color: #f0883e; }
-.pill.flag { background: rgba(212, 175, 55, 0.12); color: var(--gold-light); }
+.pill.over { background: rgba(240, 136, 62, 0.15); color: var(--warn); }
+.pill.flag { background: rgba(245, 197, 66, 0.14); color: var(--okay); }
 .unmapped { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .muscles { margin-top: 10px; }
 .muscle { border-top: 1px solid var(--line); }
@@ -277,11 +282,11 @@ dialog p { margin: 10px 0 0; text-align: center; font-weight: 600; }
 .m-name { font-weight: 600; font-size: 14px; }
 .m-bars { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
 .m-bars .bar { flex: 1; border-radius: 1px; background: var(--muted); opacity: 0.55; }
-.m-bars .bar.ok { background: var(--accent); opacity: 0.9; }
-.m-bars .bar.high { background: var(--gold-light); opacity: 0.9; }
-.m-bars .bar.low { background: #8a7a45; opacity: 0.9; }
+.m-bars .bar.ok { background: var(--good); opacity: 0.9; }
+.m-bars .bar.high { background: var(--good-light); opacity: 0.9; }
+.m-bars .bar.low { background: var(--okay); opacity: 0.9; }
 .m-bars .bar.under { background: var(--bad); opacity: 0.7; }
-.m-bars .bar.over { background: #f0883e; opacity: 0.9; }
+.m-bars .bar.over { background: var(--warn); opacity: 0.9; }
 .m-bars .bar.now { opacity: 0.45; }
 .m-now { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .m-now small { display: block; font-size: 9px; font-weight: 500; color: var(--muted); }
@@ -308,7 +313,8 @@ dialog p { margin: 10px 0 0; text-align: center; font-weight: 600; }
 .cmp-report { margin-top: 14px; }
 .cmp-report h3 { margin-bottom: 2px; }
 .cmp { --tone: var(--muted); border-left: 3px solid var(--tone); padding: 2px 0 2px 12px; margin-top: 14px; }
-.cmp.pr, .cmp.up { --tone: var(--accent); }
+.cmp.up { --tone: var(--good); }
+.cmp.pr { --tone: var(--great); }
 .cmp.down { --tone: var(--bad); }
 .cmp.new { --tone: #6e6e6e; }
 .cmp-tag { font-size: 12px; font-weight: 700; color: var(--tone); white-space: nowrap; }
@@ -375,9 +381,9 @@ img.avatar { object-fit: cover; display: block; }
 .m-grid small { font-size: 11px; }
 .props { display: grid; gap: 8px; margin-top: 6px; }
 .prop { --tone: var(--muted); border-left: 3px solid var(--tone); padding: 2px 0 2px 10px; }
-.prop.good { --tone: var(--accent); }
-.prop.ok { --tone: var(--gold-light); }
-.prop.warn { --tone: #f0883e; }
+.prop.good { --tone: var(--good); }
+.prop.ok { --tone: var(--okay); }
+.prop.warn { --tone: var(--warn); }
 .prop.bad { --tone: var(--bad); }
 .prop p { margin: 4px 0 0; }
 .m-history { margin-top: 8px; }
@@ -417,10 +423,10 @@ dialog ul { padding-left: 18px; }
 .r-label small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
 .r-value { font-variant-numeric: tabular-nums; font-weight: 700; }
 .level-pill { justify-self: end; font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 99px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.03em; }
-.level-pill.l0 { background: var(--card-2); color: var(--muted); }
-.level-pill.l1 { background: rgba(224, 224, 224, 0.12); color: var(--text); }
-.level-pill.l2 { background: rgba(212, 175, 55, 0.15); color: var(--accent); }
-.level-pill.l3 { background: linear-gradient(135deg, var(--gold-light), var(--accent) 55%, var(--gold-dark)); color: #121212; }
+.level-pill.l0 { background: rgba(240, 136, 62, 0.16); color: var(--warn); }
+.level-pill.l1 { background: rgba(245, 197, 66, 0.16); color: var(--okay); }
+.level-pill.l2 { background: rgba(163, 230, 122, 0.18); color: var(--good-light); }
+.level-pill.l3 { background: #1e8f55; color: #fff; }
 
 /* Male/female question, pinned near the top */
 dialog.top-sheet { margin-top: calc(env(safe-area-inset-top) + 24px); width: min(92vw, 400px); }
@@ -433,3 +439,8 @@ dialog.top-sheet p { margin: 8px 0 4px; }
 .level-pill.f.l2 { background: linear-gradient(135deg, #ff7ac3, #e055a6); color: #fff; }
 .level-pill.f.l3 { background: linear-gradient(135deg, #ff9fd2, #ff6fb5 45%, var(--accent)); color: #fff; box-shadow: 0 0 12px rgba(255, 111, 181, 0.45); }
 .rating-row { grid-template-columns: 1fr auto minmax(96px, auto); }
+
+/* Green / red for direction of change */
+.up-text { color: var(--good); }
+.lb-val.gold { color: var(--good); }
+.warn-text { color: var(--warn); }

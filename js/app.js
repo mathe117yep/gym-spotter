@@ -233,7 +233,7 @@ const VERDICT = { pr: '🏆 New best', up: '▲ Up', same: '● Matched', down: 
 // Exercise-by-exercise comparison with the last time each one was done.
 function workoutReportHtml(r) {
   const tally = [
-    r.up && `<b class="gold">${r.up} up${r.prs ? ` (🏆 ${plural(r.prs, 'new best')})` : ''}</b>`,
+    r.up && `<b class="up-text">${r.up} up${r.prs ? ` (🏆 ${plural(r.prs, 'new best')})` : ''}</b>`,
     r.same && `${r.same} matched`, r.down && `<b class="down-text">${r.down} down</b>`, r.fresh && `${r.fresh} first time`,
   ].filter(Boolean).join(' · ');
   const sets = list => list.map(s => esc(setText(s))).join(', ');
@@ -445,7 +445,7 @@ function balanceHtml(b, own, profile) {
     <section class="card" id="balance">
       <h3>Training balance</h3>
       <p class="hint">Hard sets per muscle per week (warm-ups skipped, helper muscles get half a set). Targets ${goalNote}. Tap a muscle for details.</p>
-      ${alerts.length ? `<div class="alerts">${alerts.join('')}</div>` : '<p class="small gold">Nothing flagged — every muscle is in a good spot.</p>'}
+      ${alerts.length ? `<div class="alerts">${alerts.join('')}</div>` : '<p class="small up-text">Nothing flagged — every muscle is in a good spot.</p>'}
       ${n ? `
         <div class="notice warn">
           ${plural(n, 'exercise')} ${n === 1 ? 'is not' : 'are not'} mapped to muscles yet, so ${n === 1 ? 'it is' : 'they are'} not counted:
@@ -595,7 +595,9 @@ function measurementsHtml(profile, list, own) {
   const delta = id => {
     if (!prev || latest[id] == null || prev[id] == null) return '';
     const d = latest[id] - prev[id];
-    return Math.abs(d) < 0.05 ? '<small>no change</small>' : `<small class="${d > 0 ? 'gold' : 'muted'}">${d > 0 ? '+' : '−'}${fmtWeight(Math.abs(d))}"</small>`;
+    if (Math.abs(d) < 0.05) return '<small>no change</small>';
+    const better = id === 'waist' ? d < 0 : d > 0; // a smaller waist is progress; bigger everything else
+    return `<small class="${better ? 'up-text' : 'down-text'}">${d > 0 ? '+' : '−'}${fmtWeight(Math.abs(d))}"</small>`;
   };
   return `
     <section class="card" id="measurements">
@@ -652,7 +654,7 @@ function measureDialogHtml(profile, last) {
       <form id="measure-form">
         <div class="row">
           <label class="grow">Height (feet)<input type="number" name="ft" inputmode="numeric" min="4" max="7" placeholder="5" value="${profile.height_in ? Math.floor(profile.height_in / 12) : ''}"></label>
-          <label class="grow">Height (inches)<input type="number" name="in" inputmode="decimal" min="0" max="11.5" step="0.5" placeholder="10" value="${profile.height_in ? fmtWeight(profile.height_in % 12) : ''}"></label>
+          <label class="grow">Height (inches)<input type="number" name="in" inputmode="decimal" min="0" max="11.9" step="any" placeholder="10" value="${profile.height_in ? fmtWeight(profile.height_in % 12) : ''}"></label>
         </div>
         <p class="hint">Height drives your size ratings and waist-to-height ratio.</p>
         <label>Rate my measurements as
@@ -663,7 +665,7 @@ function measureDialogHtml(profile, last) {
         </label>
         ${fieldsFor(profile.sex).map(f => `
           <div class="m-field">
-            <label>${f.label} (in)<input type="number" name="${f.id}" inputmode="decimal" step="0.25" min="5" max="80" placeholder="${last?.[f.id] != null ? fmtWeight(last[f.id]) : ''}"></label>
+            <label>${f.label} (in)<input type="number" name="${f.id}" inputmode="decimal" step="any" min="5" max="80" placeholder="${last?.[f.id] != null ? fmtWeight(last[f.id]) : ''}"></label>
             <details><summary class="small muted">How?</summary><p class="small">${esc(f.how)}</p></details>
           </div>`).join('')}
         <p class="error-text" id="measure-error"></p>
@@ -1110,7 +1112,7 @@ const monthYear = iso => new Date(iso + 'T12:00').toLocaleDateString(undefined, 
 
 // One finished plan: "Bulk  Mar 2026 – Aug 2026" with weight, pace and lift changes.
 function planDoneHtml(plan, s) {
-  const liftLine = (name, l) => (l ? `${name} ${lb(l.from)} → ${lb(l.to)} <span class="${l.to >= l.from ? 'gold' : 'muted'}">(${signedLb(round(l.to) - round(l.from))})</span>` : null);
+  const liftLine = (name, l) => (l ? `${name} ${lb(l.from)} → ${lb(l.to)} <span class="${l.to >= l.from ? 'up-text' : 'down-text'}">(${signedLb(round(l.to) - round(l.from))})</span>` : null);
   const lifts = [liftLine('Squat', s.squat), liftLine('Bench', s.bench)].filter(Boolean);
   const weeks = Math.round(s.weeks);
   return `
@@ -1187,7 +1189,7 @@ async function planView() {
         <h3>Deloads</h3>
         <p class="hint">An easier week (same weights or ~10% lighter, about half the sets) so you recover and come back stronger. The app suggests one after ${goal === 'cut' ? '4–8' : '6–10'} weeks of training, sooner if your lifts stall.</p>
         ${deload?.active ? `<p class="small gold">Deload in progress — day ${deload.day} of ${DELOAD_DAYS}.</p>`
-          : deload ? `<p class="small">${deload.weeks} weeks since your ${deload.last ? `last deload (${formatDate(deload.last)})` : 'first week on Gym Spotter'}.${deload.due ? ' <b class="gold">A deload is recommended.</b>' : ''}</p>` : ''}
+          : deload ? `<p class="small">${deload.weeks} weeks since your ${deload.last ? `last deload (${formatDate(deload.last)})` : 'first week on Gym Spotter'}.${deload.due ? ' <b class="warn-text">A deload is recommended.</b>' : ''}</p>` : ''}
         ${deload && !deload.active ? '<button class="btn small" id="start-deload">Start a deload week</button>' : ''}
         ${deloads.length ? `<div class="m-history">${[...deloads].reverse().map(d => `
           <div class="list-row static"><span>Week of ${formatDate(d.started_on)}</span><button class="icon-btn" data-del-deload="${d.id}" aria-label="Delete">✕</button></div>`).join('')}</div>` : ''}
@@ -1288,7 +1290,7 @@ function boardRows(rows, field, avatars) {
       <span class="lb-rank">${MEDALS[i] ?? i + 1}</span>
       ${avatarHtml(r.profile, avatars.get(r.profile.id), 'sm')}
       <span class="lb-name">${nameOf(r.profile)}<small>${field === 'volume' ? plural(r.workouts, 'workout') : `${plural(r.compared, 'lift')} compared`}</small></span>
-      <b class="lb-val${field === 'growth' ? (r.growth >= 0 ? ' gold' : ' down-text') : ''}">${field === 'volume'
+      <b class="lb-val${field === 'growth' ? (r.growth >= 0 ? ' up-text' : ' down-text') : ''}">${field === 'volume'
         ? `${Math.round(r.volume).toLocaleString()} lb`
         : `${r.growth >= 0 ? '+' : '−'}${Math.abs(r.growth).toFixed(1)}%`}</b>
     </a>`).join('');
