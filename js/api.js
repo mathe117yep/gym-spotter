@@ -160,3 +160,15 @@ export async function deletePhoto(photo) {
   check(await db.storage.from('progress-photos').remove([photo.storage_path]));
   check(await db.from('progress_photos').delete().eq('id', photo.id));
 }
+
+export async function listPlans(userId) {
+  return check(await db.from('plan_history').select('*').eq('user_id', userId).order('ended_on', { ascending: false }));
+}
+
+export async function addPlan(goal, started_on, ended_on) {
+  check(await db.from('plan_history').insert({ goal, started_on, ended_on }));
+}
+
+export async function deletePlan(id) {
+  check(await db.from('plan_history').delete().eq('id', id));
+}

@@ -3,7 +3,7 @@ import {
   SQUAT, BENCH, key, e1rm, round, todayIso, daysAgo, sortByDate,
   exerciseSeries, liftSummary, personalRecords, weeklySummary, weightSummary,
 } from './stats.js';
-import { GOALS, targetRange, dailyRemark, recentReports, lastWeekStart, goalProgress } from './coach.js';
+import { GOALS, targetRange, dailyRemark, recentReports, lastWeekStart, goalProgress, planSummary } from './coach.js';
 import * as charts from './charts.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
@@ -565,8 +565,34 @@ function reportHtml(r) {
     </div>`;
 }
 
+const monthYear = iso => new Date(iso + 'T12:00').toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+
+// One finished plan: "Bulk  Mar 2026 – Aug 2026" with weight, pace and lift changes.
+function planDoneHtml(plan, s) {
+  const liftLine = (name, l) => (l ? `${name} ${lb(l.from)} → ${lb(l.to)} <span class="${l.to >= l.from ? 'gold' : 'muted'}">(${signedLb(round(l.to) - round(l.from))})</span>` : null);
+  const lifts = [liftLine('Squat', s.squat), liftLine('Bench', s.bench)].filter(Boolean);
+  const weeks = Math.round(s.weeks);
+  return `
+    <div class="plan-done ${s.pace?.status ?? ''}">
+      <div class="row between">
+        <b class="plan-title">${GOALS[plan.goal].label} <span class="muted">${monthYear(plan.started_on)} – ${monthYear(plan.ended_on)}</span></b>
+        <button class="icon-btn" data-del-plan="${plan.id}" aria-label="Delete">✕</button>
+      </div>
+      <div class="muted small">${formatDate(plan.started_on)} to ${formatDate(plan.ended_on)} · ${weeks < 1 ? `${s.days} days` : plural(weeks, 'week')} · ${plural(s.workouts, 'workout')}</div>
+      ${s.change != null ? `
+        <div class="report-nums">
+          <div><span class="tile-label">Start</span><b>${fmtWeight(s.startWeight)}</b></div>
+          <div><span class="tile-label">End</span><b>${fmtWeight(s.endWeight)}</b></div>
+          <div><span class="tile-label">Total</span><b class="delta">${signedLb(s.change)} lb</b></div>
+        </div>
+        <p class="small"><b class="pace">${esc(s.pace.text)}</b> — averaged ${signedLb(s.perWeek)} lb a week (${s.pctPerWeek >= 0 ? '+' : '−'}${Math.abs(s.pctPerWeek).toFixed(2)}% of body weight). Target: ${esc(GOALS[plan.goal].target)}.</p>`
+        : '<p class="hint">Not enough weigh-ins during this plan to measure the weight change.</p>'}
+      ${lifts.length ? `<p class="small">Est. 1RM, first vs last 3 weeks: ${lifts.join(' · ')}</p>` : ''}
+    </div>`;
+}
+
 async function planView() {
-  const bodyweights = await api.getBodyweights(me().id);
+  const [bodyweights, plans, workouts] = await Promise.all([api.getBodyweights(me().id), api.listPlans(me().id), workoutsFor(me().id)]);
   const goal = me().goal;
   const today = todayIso();
   const current = weightSummary(bodyweights)?.latest.avg;
@@ -592,6 +618,7 @@ async function planView() {
           <div class="goal-start">
             <label>Started ${GOAL_WORD[goal].toLowerCase()} on<input type="date" id="goal-start" value="${esc(me().goal_started_on ?? today)}" max="${today}"></label>
             <p class="hint">${goalLine(me(), bodyweights)}. Buddies see this on their Buddies tab.</p>
+            <button class="btn small" id="end-plan">End ${GOALS[goal].label.toLowerCase()}</button>
           </div>` : ''}
       </section>
 
@@ -611,8 +638,39 @@ async function planView() {
               <span class="report-chip ${r.status}">${signedLb(r.change)} lb · ${esc(r.headline)}</span>
             </div>`).join('')}
         </section>` : ''}
-`,
+
+      ${plans.length ? `
+        <section class="card">
+          <h3>Plans completed</h3>
+          ${plans.map(p => planDoneHtml(p, planSummary(p, bodyweights, workouts))).join('')}
+        </section>` : ''}`,
     mount() {
+      // Moving off a plan files it under "Plans completed" (skipped if it started today).
+      const archiveCurrent = async () => {
+        const started = me().goal_started_on;
+        if (goal && started && started < today) await api.addPlan(goal, started, today);
+      };
+
+      document.getElementById('end-plan')?.addEventListener('click', async ev => {
+        if (!confirm(`End your ${GOALS[goal].label.toLowerCase()}?\n\nIt'll be saved under Plans completed.`)) return;
+        ev.target.disabled = true;
+        try {
+          await archiveCurrent();
+          await api.updateMyProfile({ goal: null, goal_started_on: null });
+          toast(`${GOALS[goal].label} ended`);
+          route();
+        } catch (e) {
+          ev.target.disabled = false;
+          toast(`Couldn't save: ${e.message}`);
+        }
+      });
+
+      document.querySelectorAll('[data-del-plan]').forEach(btn => btn.addEventListener('click', async () => {
+        if (!confirm('Delete this completed plan? This can\'t be undone.')) return;
+        await api.deletePlan(btn.dataset.delPlan);
+        route();
+      }));
+
       document.getElementById('goal-start')?.addEventListener('change', async ev => {
         if (!ev.target.value) return;
         try {
@@ -627,9 +685,10 @@ async function planView() {
       document.querySelectorAll('.goal-opt').forEach(btn => btn.addEventListener('click', async () => {
         const next = btn.dataset.goal;
         if (next === goal) return;
-        if (goal && !confirm(`Are you sure you want to change your Plan from ${GOALS[goal].label} to ${GOALS[next].label}?\n\nYour progress total will restart from today.`)) return;
+        if (goal && !confirm(`Are you sure you want to change your Plan from ${GOALS[goal].label} to ${GOALS[next].label}?\n\nYour ${GOALS[goal].label.toLowerCase()} will be saved under Plans completed, and your progress total restarts from today.`)) return;
         btn.disabled = true;
         try {
+          await archiveCurrent();
           await api.updateMyProfile({ goal: next, goal_started_on: today });
           toast(`Plan set: ${GOALS[next].label}`);
           route();

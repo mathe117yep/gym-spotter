@@ -2,7 +2,7 @@
 // this browser only. Logins: demo1 / 1111 (onboarding), lifter / 0000, buddy / 0000.
 import { todayIso, toTime } from './stats.js';
 
-const STORE = 'gymspotter-demo-v3';
+const STORE = 'gymspotter-demo-v4';
 let state;
 let me = null;
 
@@ -16,7 +16,7 @@ function shiftDays(iso, n) {
 }
 
 function seed() {
-  const s = { profiles: [], workouts: [], sets: [], bodyweights: [], photos: [] };
+  const s = { profiles: [], workouts: [], sets: [], bodyweights: [], photos: [], plans: [] };
   const people = [
     { username: 'lifter', display_name: 'Demo Lifter', bench: 255, squat: 335, bw: 196, onboarded: true, goal: 'cut', started: -60 },
     { username: 'buddy', display_name: 'Demo Buddy', bench: 205, squat: 285, bw: 178, onboarded: true, goal: 'bulk', started: -120 },
@@ -30,6 +30,7 @@ function seed() {
   for (const p of people) {
     const id = uid();
     s.profiles.push({ id, username: p.username, display_name: p.display_name, onboarded: p.onboarded, goal: p.goal ?? null, goal_started_on: p.started ? shiftDays(today, p.started) : null });
+    if (p.username === 'lifter') s.plans.push({ id: uid(), user_id: id, goal: 'bulk', started_on: shiftDays(today, -150), ended_on: shiftDays(today, -60) });
     if (!p.bench) continue;
     const days = 150;
     for (let d = days; d >= 1; d--) {
@@ -190,4 +191,19 @@ export async function addPhoto(blob, takenOn, weight) {
 
 export async function deletePhoto(photo) {
   state.photos = state.photos.filter(p => p.id !== photo.id);
+}
+
+export async function listPlans(userId) {
+  return (state.plans ?? []).filter(p => p.user_id === userId).sort((a, b) => b.ended_on.localeCompare(a.ended_on));
+}
+
+export async function addPlan(goal, started_on, ended_on) {
+  (state.plans ??= []).push({ id: uid(), user_id: me.id, goal, started_on, ended_on });
+  save();
+}
+
+export async function deletePlan(id) {
+  mine(state.plans.find(p => p.id === id));
+  state.plans = state.plans.filter(p => p.id !== id);
+  save();
 }

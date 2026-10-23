@@ -249,3 +249,13 @@ dialog p { margin: 10px 0 0; text-align: center; font-weight: 600; }
 .report-chip.bad { color: var(--bad); }
 .buddy-goal { font-size: 13px; color: var(--muted); margin-top: 8px; }
 .goal-start { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
+.goal-start .btn { margin-top: 4px; }
+.plan-done { --tone: var(--muted); border-left: 3px solid var(--tone); padding: 2px 0 2px 12px; margin-top: 14px; }
+.plan-done:first-of-type { margin-top: 4px; }
+.plan-done.good { --tone: var(--accent); }
+.plan-done.warn { --tone: #f0883e; }
+.plan-done.bad { --tone: var(--bad); }
+.plan-done p { margin: 8px 0 0; }
+.plan-done .pace, .plan-done .delta { color: var(--tone); }
+.plan-title { font-size: 16px; color: #fff; }
+.plan-title .muted { font-weight: 500; font-size: 14px; }

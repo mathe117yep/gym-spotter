@@ -1,7 +1,7 @@
 // Feedback on weigh-ins for the body composition goal picked on the Plan tab.
 // Rates are % of body weight per week, the standard way to pace a bulk or cut so
 // you keep (or build) as much muscle as possible.
-import { weekStart, toTime, weightTrend } from './stats.js';
+import { weekStart, toTime, weightTrend, exerciseSeries, SQUAT, BENCH } from './stats.js';
 
 export const GOALS = {
   bulk: {
@@ -158,4 +158,43 @@ export function goalProgress(goal, startedOn, bodyweights) {
   const latest = trend[trend.length - 1];
   if (!start || latest.date <= start.date) return { startedOn, change: null };
   return { startedOn, start: start.avg, current: latest.avg, change: latest.avg - start.avg };
+}
+
+// Wrap-up of a finished plan: weight change and pace vs target, plus how squat and bench moved.
+const STRENGTH_WINDOW = 21; // days at each end of the plan used to compare lifts
+
+export function planSummary(plan, bodyweights, workouts) {
+  const { goal, started_on: start, ended_on: end } = plan;
+  const g = GOALS[goal];
+  const days = Math.max(1, Math.round((toTime(end) - toTime(start)) / DAY));
+  const weeks = days / 7;
+  const out = { goal, start, end, days, weeks, workouts: workouts.filter(w => w.date >= start && w.date <= end).length };
+
+  const trend = weightTrend(bodyweights);
+  const from = trend.filter(p => p.date <= start).pop() ?? trend.find(p => p.date >= start && p.date <= end);
+  const to = trend.filter(p => p.date <= end && p.date >= start).pop();
+  if (from && to && to.date > from.date) {
+    const change = to.avg - from.avg;
+    const pct = (change / from.avg) * 100 / weeks; // % of body weight per week
+    let pace;
+    if ((goal === 'bulk' && change <= 0) || (goal === 'cut' && change >= 0)) pace = { status: 'bad', text: 'Moved the wrong way for this goal' };
+    else if (pct > g.max) pace = { status: 'warn', text: goal === 'cut' ? 'Slower than the target pace' : goal === 'bulk' ? 'Faster than the target pace' : 'Drifted up' };
+    else if (pct < g.min) pace = { status: 'warn', text: goal === 'cut' ? 'Faster than the target pace' : goal === 'bulk' ? 'Slower than the target pace' : 'Drifted down' };
+    else pace = { status: 'good', text: 'Right on the target pace' };
+    Object.assign(out, { startWeight: from.avg, endWeight: to.avg, change, perWeek: change / weeks, pctPerWeek: pct, pace });
+  }
+
+  if (days >= STRENGTH_WINDOW * 2 / 3) {
+    const lift = key => {
+      const series = exerciseSeries(workouts, key).filter(p => p.e1rm != null && p.date >= start && p.date <= end);
+      const early = series.filter(p => (toTime(p.date) - toTime(start)) / DAY <= STRENGTH_WINDOW);
+      const late = series.filter(p => (toTime(end) - toTime(p.date)) / DAY <= STRENGTH_WINDOW);
+      if (!early.length || !late.length) return null;
+      const best = list => Math.max(...list.map(p => p.e1rm));
+      return { from: best(early), to: best(late) };
+    };
+    out.squat = lift(SQUAT);
+    out.bench = lift(BENCH);
+  }
+  return out;
 }

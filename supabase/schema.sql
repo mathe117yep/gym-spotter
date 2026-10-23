@@ -55,6 +55,16 @@ create table public.progress_photos (
   created_at   timestamptz not null default now()
 );
 
+create table public.plan_history (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  goal       text not null check (goal in ('bulk', 'cut', 'recomp')),
+  started_on date not null,
+  ended_on   date not null,
+  created_at timestamptz not null default now()
+);
+create index plan_history_user on public.plan_history (user_id, ended_on);
+
 -- ---------------------------------------------------------------------------
 -- New login -> profile row automatically.
 -- The username is the part of the email before "@" (mathe117@gymspotter.app -> mathe117).
@@ -120,6 +130,14 @@ create policy "bodyweights: owner can insert" on public.bodyweights
 create policy "bodyweights: owner can update" on public.bodyweights
   for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "bodyweights: owner can delete" on public.bodyweights
+  for delete to authenticated using (user_id = auth.uid());
+
+alter table public.plan_history enable row level security;
+create policy "plan_history: signed-in users can view" on public.plan_history
+  for select to authenticated using (true);
+create policy "plan_history: owner can insert" on public.plan_history
+  for insert to authenticated with check (user_id = auth.uid());
+create policy "plan_history: owner can delete" on public.plan_history
   for delete to authenticated using (user_id = auth.uid());
 
 create policy "photos: owner only" on public.progress_photos
