@@ -66,3 +66,60 @@ export function proportions(m, heightIn) {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Size-for-height ratings (male lifters). Each measurement is compared with height, so a
+// 16" arm means more at 5'6" than at 6'2". Thresholds are the share of height needed to
+// reach Intermediate / Advanced / Elite; below the first is Beginner. They're rough
+// benchmarks for natural lifters at a typical body fat, not an official standard.
+// ---------------------------------------------------------------------------
+
+export const LEVELS = ['Beginner', 'Intermediate', 'Advanced', 'Elite'];
+
+const SIZE_STANDARDS = {
+  neck: [0.22, 0.235, 0.25],
+  chest: [0.59, 0.635, 0.68],
+  biceps: [0.21, 0.23, 0.25],
+  thigh: [0.33, 0.355, 0.385],
+  calves: [0.215, 0.23, 0.245],
+};
+const WAIST_TO_HEIGHT = [0.48, 0.45, 0.42]; // smaller is better: at or under each = next level
+const CHEST_TO_WAIST = [1.2, 1.3, 1.4];
+
+const levelUp = (value, steps) => steps.filter(s => value >= s).length;
+const levelDown = (value, steps) => steps.filter(s => value <= s).length;
+
+export function ratings(m, heightIn) {
+  if (!heightIn) return null;
+  const items = [];
+  for (const f of FIELDS) {
+    if (m[f.id] == null) continue;
+    if (f.id === 'waist') {
+      const level = levelDown(m.waist / heightIn, WAIST_TO_HEIGHT);
+      items.push({
+        id: 'waist', label: 'Waist (leanness)', value: `${r1(m.waist)}"`, level,
+        next: level < 3 ? `${LEVELS[level + 1]} at ${r1(WAIST_TO_HEIGHT[level] * heightIn)}" or less` : 'Top tier',
+      });
+      continue;
+    }
+    const steps = SIZE_STANDARDS[f.id];
+    const level = levelUp(m[f.id] / heightIn, steps);
+    items.push({
+      id: f.id, label: f.label, value: `${r1(m[f.id])}"`, level,
+      next: level < 3 ? `${LEVELS[level + 1]} at ${r1(steps[level] * heightIn)}"` : 'Top tier',
+    });
+  }
+  if (m.chest && m.waist) {
+    const ratio = m.chest / m.waist;
+    const level = levelUp(ratio, CHEST_TO_WAIST);
+    items.push({
+      id: 'taper', label: 'V-taper (chest ÷ waist)', value: ratio.toFixed(2), level,
+      next: level < 3 ? `${LEVELS[level + 1]} at ${CHEST_TO_WAIST[level].toFixed(1)}` : 'Top tier',
+    });
+  }
+  if (!items.length) return null;
+  // Overall = the middle rating, so one standout (or weak spot) doesn't swing it.
+  const sorted = items.map(i => i.level).sort((a, b) => a - b);
+  const overall = sorted[Math.floor((sorted.length - 1) / 2)];
+  return { items, overall };
+}

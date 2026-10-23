@@ -9,7 +9,7 @@ import { MUSCLES, MUSCLE_LABEL, buildMatcher, keyOf } from './muscles.js';
 import { analyzeBalance } from './balance.js';
 import { compareWorkout } from './compare.js';
 import { leaderboard, timeline } from './social.js';
-import { FIELDS, TIPS, REMIND_DAYS, proportions } from './measure.js';
+import { FIELDS, TIPS, REMIND_DAYS, LEVELS, proportions, ratings } from './measure.js';
 import { deloadCheck, DELOAD_DAYS } from './deload.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
@@ -588,6 +588,7 @@ function measurementsHtml(profile, list, own) {
   const latest = list[list.length - 1];
   const prev = list[list.length - 2];
   const props = latest ? proportions(latest, profile.height_in) : [];
+  const rated = latest ? ratings(latest, profile.height_in) : null;
   const delta = id => {
     if (!prev || latest[id] == null || prev[id] == null) return '';
     const d = latest[id] - prev[id];
@@ -602,6 +603,18 @@ function measurementsHtml(profile, list, own) {
           ${FIELDS.filter(f => latest[f.id] != null).map(f => `<div><span class="tile-label">${f.label}</span><b>${inches(latest[f.id])}</b>${delta(f.id)}</div>`).join('')}
           ${profile.height_in ? `<div><span class="tile-label">Height</span><b>${Math.floor(profile.height_in / 12)}'${fmtWeight(profile.height_in % 12)}"</b></div>` : ''}
         </div>
+        ${rated ? `
+          <div class="ratings">
+            <div class="row between"><b>Size for ${own ? 'your' : 'their'} height</b><span class="level-pill l${rated.overall}">Overall: ${LEVELS[rated.overall]}</span></div>
+            ${rated.items.map(r => `
+              <div class="rating-row">
+                <span class="r-label">${r.label}<small>${r.next}</small></span>
+                <span class="r-value">${r.value}</span>
+                <span class="level-pill l${r.level}">${LEVELS[r.level]}</span>
+              </div>`).join('')}
+            <p class="hint">Rough benchmarks for natural male lifters, scaled to height (flexed arm, everything else relaxed). Extra body fat makes the size measurements bigger but counts against you on waist and V-taper.</p>
+          </div>`
+          : own && !profile.height_in ? '<p class="hint">Add your height (Update → Height) to get Beginner–Elite ratings for each measurement.</p>' : ''}
         ${props.length ? `
           <div class="props">${props.map(p => `
             <div class="prop ${p.status}">
@@ -629,12 +642,11 @@ function measureDialogHtml(profile, last) {
         <ul class="small">${TIPS.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
       </details>
       <form id="measure-form">
-        ${profile.height_in ? '' : `
-          <div class="row">
-            <label class="grow">Height (feet)<input type="number" name="ft" inputmode="numeric" min="4" max="7" placeholder="5"></label>
-            <label class="grow">Height (inches)<input type="number" name="in" inputmode="decimal" min="0" max="11.5" step="0.5" placeholder="10"></label>
-          </div>
-          <p class="hint">Asked once — used for your waist-to-height ratio.</p>`}
+        <div class="row">
+          <label class="grow">Height (feet)<input type="number" name="ft" inputmode="numeric" min="4" max="7" placeholder="5" value="${profile.height_in ? Math.floor(profile.height_in / 12) : ''}"></label>
+          <label class="grow">Height (inches)<input type="number" name="in" inputmode="decimal" min="0" max="11.5" step="0.5" placeholder="10" value="${profile.height_in ? fmtWeight(profile.height_in % 12) : ''}"></label>
+        </div>
+        <p class="hint">Height drives your size ratings and waist-to-height ratio.</p>
         ${FIELDS.map(f => `
           <div class="m-field">
             <label>${f.label} (in)<input type="number" name="${f.id}" inputmode="decimal" step="0.25" min="5" max="80" placeholder="${last?.[f.id] != null ? fmtWeight(last[f.id]) : ''}"></label>
@@ -660,13 +672,16 @@ function mountMeasurements(profile) {
       if (v > 0) row[f.id] = v;
     }
     const err = document.getElementById('measure-error');
-    if (Object.keys(row).length === 1) { err.textContent = 'Fill in at least one measurement.'; return; }
-    const ft = parseFloat(form.elements.ft?.value), inch = parseFloat(form.elements.in?.value || '0');
+    const ft = parseFloat(form.elements.ft.value), inch = parseFloat(form.elements.in.value || '0');
+    const height = ft > 0 ? ft * 12 + (inch || 0) : null;
+    const heightChanged = height && height !== Number(profile.height_in);
+    const hasMeasurements = Object.keys(row).length > 1;
+    if (!hasMeasurements && !heightChanged) { err.textContent = 'Fill in at least one measurement.'; return; }
     try {
-      if (ft > 0) await api.updateMyProfile({ height_in: ft * 12 + (inch || 0) });
-      await api.addMeasurement(row);
+      if (heightChanged) await api.updateMyProfile({ height_in: height });
+      if (hasMeasurements) await api.addMeasurement(row);
       dialog.close();
-      toast('Measurements saved 📏');
+      toast(hasMeasurements ? 'Measurements saved 📏' : 'Height saved');
       route();
     } catch (e) {
       err.textContent = `Couldn't save: ${e.message}`;
@@ -702,9 +717,13 @@ function deloadBannerHtml(check) {
     </section>`;
 }
 
+// The deload suggestion pops up once per app open, not every time Home redraws.
+let deloadPromptShown = false;
+
 function mountDeload(profile, check) {
   const dialog = document.getElementById('deload-dialog');
-  if (!dialog) return;
+  if (!dialog || deloadPromptShown) return;
+  deloadPromptShown = true;
   dialog.showModal();
   document.getElementById('deload-later').addEventListener('click', () => { snooze('deload', profile.id, 7); dialog.close(); });
   document.getElementById('deload-start').addEventListener('click', async () => {

@@ -408,3 +408,16 @@ dialog ul { padding-left: 18px; }
 .avatar-big-letter { display: grid; place-items: center; font-size: 120px; font-weight: 800; color: var(--accent); background: var(--card-2); }
 .viewer-name { font-size: 20px; font-weight: 700; margin: 14px 0 4px; }
 .avatar-viewer .btn.wide { margin-top: 8px; }
+
+/* Size-for-height ratings */
+.ratings { margin: 12px 0 6px; padding: 12px; background: var(--bg); border-radius: 12px; }
+.rating-row { display: grid; grid-template-columns: 1fr auto 96px; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.ratings .row.between { margin-bottom: 6px; }
+.r-label { font-size: 14px; font-weight: 600; min-width: 0; }
+.r-label small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
+.r-value { font-variant-numeric: tabular-nums; font-weight: 700; }
+.level-pill { justify-self: end; font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 99px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.03em; }
+.level-pill.l0 { background: var(--card-2); color: var(--muted); }
+.level-pill.l1 { background: rgba(224, 224, 224, 0.12); color: var(--text); }
+.level-pill.l2 { background: rgba(212, 175, 55, 0.15); color: var(--accent); }
+.level-pill.l3 { background: linear-gradient(135deg, var(--gold-light), var(--accent) 55%, var(--gold-dark)); color: #121212; }
