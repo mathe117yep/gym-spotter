@@ -152,24 +152,19 @@ export function ratings(m, heightIn, sex) {
   const L = scale.levels;
   const next = (level, text) => (level < 3 ? `${L[level + 1].replace(/ [^\w!]+$/u, '')} at ${text}` : 'Top tier');
   const items = [];
-  // Body fat makes every size measurement bigger, so size can only rate one level above
-  // the waist (leanness) rating. Big *and* lean is what earns the top tiers.
-  const waistLevel = m.waist ? levelDown(m.waist / heightIn, scale.waist) : null;
+  // Each size is rated on its own against height. Only the waist and the V-taper /
+  // hourglass ratios involve the waist.
   for (const f of fieldsFor(sex)) {
     if (m[f.id] == null) continue;
     if (f.id === 'waist') {
-      items.push({ id: 'waist', label: scale.waistLabel, value: `${r1(m.waist)}"`, level: waistLevel, next: next(waistLevel, `${r1(scale.waist[waistLevel] * heightIn)}" or less`) });
+      const level = levelDown(m.waist / heightIn, scale.waist);
+      items.push({ id: 'waist', label: scale.waistLabel, value: `${r1(m.waist)}"`, level, next: next(level, `${r1(scale.waist[level] * heightIn)}" or less`) });
       continue;
     }
     const steps = scale.size[f.id];
     if (!steps) continue; // e.g. bust isn't rated
-    const sizeLevel = levelUp(m[f.id] / heightIn, steps);
-    const cap = waistLevel == null ? 3 : waistLevel + 1;
-    if (sizeLevel > cap) {
-      items.push({ id: f.id, label: f.label, value: `${r1(m[f.id])}"`, level: cap, next: `Size is ${L[sizeLevel].replace(/ [^\w!]+$/u, '')} — a tighter waist unlocks it` });
-    } else {
-      items.push({ id: f.id, label: f.label, value: `${r1(m[f.id])}"`, level: sizeLevel, next: next(sizeLevel, `${r1(steps[sizeLevel] * heightIn)}"`) });
-    }
+    const level = levelUp(m[f.id] / heightIn, steps);
+    items.push({ id: f.id, label: f.label, value: `${r1(m[f.id])}"`, level, next: next(level, `${r1(steps[level] * heightIn)}"`) });
   }
   if (isFemale(sex) && m.waist && m.hips) {
     const ratio = m.waist / m.hips;
