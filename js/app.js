@@ -119,7 +119,7 @@ function loginView() {
   return {
     html: `
       <form class="login" id="login">
-        <div class="brand-big">${logoSvg()}<h1>Gym Spotter</h1><p>Log it. Track it. Get roasted.</p></div>
+        <div class="brand-big"><img src="icons/logo.png" alt=""><h1>Gym Spotter</h1><p>Log it. Track it. Get roasted.</p></div>
         ${demo ? '<p class="hint center">Demo mode — try <b>lifter</b> / <b>0000</b>, or <b>demo1</b> / <b>1111</b> to see first-time setup.</p>' : ''}
         <label>User ID<input name="userid" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
         <label>PIN<input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="current-password" required></label>
@@ -158,16 +158,16 @@ function welcomeView() {
       </section>
       <section class="card">
         <h3>Got past workouts?</h3>
-        <p class="hint">Paste your old RepCount logs below — as many workouts as you want at once, each starting with its date. You can always do this later from the Log tab.</p>
+        <p class="hint">Paste your old RepCount logs below — as many workouts as you want at once, each starting with its date — then tap <b>Read & Log</b>. You can always do this later from the Log tab.</p>
         ${pasteBoxHtml('welcome')}
       </section>
       <button class="btn primary wide" id="finish">Let's go</button>`,
     mount() {
-      const box = mountPasteBox('welcome', [], { saveLabel: 'Import workouts' });
+      const box = mountPasteBox('welcome', []);
       document.getElementById('finish').addEventListener('click', async ev => {
         const display_name = document.getElementById('display-name').value.trim();
         if (!display_name) return toast('Add your name first.');
-        if (box.hasUnsaved()) return toast('Hit "Import workouts" first, or clear the box.');
+        if (box.hasUnsaved()) return toast('Tap "Read & Log" first, or clear the box.');
         ev.target.disabled = true;
         await api.updateMyProfile({ display_name, onboarded: true });
         go('');
@@ -177,7 +177,7 @@ function welcomeView() {
 }
 
 // ---------------------------------------------------------------------------
-// Paste box: preview -> confirm -> save. Used on Log and first-time setup.
+// Paste box: Read & Log parses and saves in one tap. Used on Log and first-time setup.
 // ---------------------------------------------------------------------------
 
 function pasteBoxHtml(id) {
@@ -189,66 +189,65 @@ Bench Press
 245 x 3 Pause reps
 
 Logged using RepCount"></textarea>
-    <div class="row"><button class="btn" id="${id}-preview">Preview</button></div>
+    <button class="btn primary wide" id="${id}-log">Read & Log</button>
     <div id="${id}-result"></div>`;
 }
 
-function mountPasteBox(id, existing, { saveLabel = 'Save', onSaved } = {}) {
+function mountPasteBox(id, existing) {
   const text = document.getElementById(`${id}-text`);
   const out = document.getElementById(`${id}-result`);
+  const btn = document.getElementById(`${id}-log`);
   const loggedDates = new Set(existing.map(w => w.date));
-  let parsed = null;
+  const warningList = warnings => (warnings.length
+    ? `<div class="notice warn"><b>Heads up:</b><ul>${warnings.slice(0, 10).map(w => `<li>${esc(w)}</li>`).join('')}${warnings.length > 10 ? `<li>…and ${warnings.length - 10} more</li>` : ''}</ul></div>`
+    : '');
 
-  text.addEventListener('input', () => { parsed = null; out.innerHTML = ''; });
-
-  document.getElementById(`${id}-preview`).addEventListener('click', () => {
+  // Reads the pasted text and saves it in one tap. Dates already logged are skipped,
+  // so pasting the same history twice doesn't double it.
+  btn.addEventListener('click', async () => {
     const { workouts, warnings } = parseWorkouts(text.value);
-    parsed = workouts;
     if (!workouts.length) {
       out.innerHTML = `<div class="notice warn">No workouts found. Each workout needs a date line (like <b>Oct 22, 2026</b>) and sets written as <b>weight x reps</b>.${warnings.length ? '<ul>' + warnings.slice(0, 8).map(w => `<li>${esc(w)}</li>`).join('') + '</ul>' : ''}</div>`;
       return;
     }
-    const dupes = workouts.filter(w => loggedDates.has(w.date));
-    const sets = workouts.reduce((n, w) => n + w.exercises.reduce((m, e) => m + e.sets.length, 0), 0);
-    const sorted = [...workouts].sort((a, b) => a.date.localeCompare(b.date));
-    out.innerHTML = `
-      <div class="notice">
-        Found <b>${workouts.length}</b> workout${workouts.length > 1 ? 's' : ''} and <b>${sets}</b> sets
-        ${workouts.length > 1 ? `from ${formatDate(sorted[0].date)} to ${formatDate(sorted[sorted.length - 1].date)}` : `on ${formatDate(workouts[0].date)}`}.
-      </div>
-      ${warnings.length ? `<div class="notice warn"><b>Heads up:</b><ul>${warnings.slice(0, 10).map(w => `<li>${esc(w)}</li>`).join('')}${warnings.length > 10 ? `<li>…and ${warnings.length - 10} more</li>` : ''}</ul></div>` : ''}
-      ${dupes.length ? `<label class="check"><input type="checkbox" id="${id}-skip" checked> Skip ${dupes.length} workout${dupes.length > 1 ? 's' : ''} on dates you already logged</label>` : ''}
-      <div class="preview-list">
-        ${sorted.slice(0, 50).map(w => `
-          <details class="preview-item${loggedDates.has(w.date) ? ' dupe' : ''}">
-            <summary>${shortDate(w.date)} <span class="muted">· ${plural(w.exercises.length, 'exercise')}</span>${loggedDates.has(w.date) ? ' <span class="tag">already logged</span>' : ''}</summary>
-            ${w.exercises.map(e => `<div class="mini"><b>${esc(e.name)}</b> ${e.sets.map(s => esc(setText(s))).join(', ')}</div>`).join('')}
-          </details>`).join('')}
-        ${sorted.length > 50 ? `<p class="hint">…and ${sorted.length - 50} more.</p>` : ''}
-      </div>
-      <button class="btn primary wide" id="${id}-save">${saveLabel}</button>`;
-
-    document.getElementById(`${id}-save`).addEventListener('click', async ev => {
-      const skip = document.getElementById(`${id}-skip`)?.checked;
-      const toSave = skip ? parsed.filter(w => !loggedDates.has(w.date)) : parsed;
-      if (!toSave.length) return toast('Nothing new to save.');
-      ev.target.disabled = true;
-      ev.target.textContent = 'Saving…';
-      try {
-        await api.addWorkouts(toSave);
-        dropMyCache();
-        toSave.forEach(w => loggedDates.add(w.date));
-        toast(`Saved ${toSave.length} workout${toSave.length > 1 ? 's' : ''} 💪`);
-        text.value = '';
-        parsed = null;
-        out.innerHTML = '';
-        onSaved?.();
-      } catch (e) {
-        ev.target.disabled = false;
-        ev.target.textContent = saveLabel;
-        toast(`Couldn't save: ${e.message}`);
-      }
-    });
+    const toSave = workouts.filter(w => !loggedDates.has(w.date));
+    const skipped = workouts.length - toSave.length;
+    if (!toSave.length) {
+      out.innerHTML = `<div class="notice warn">Already logged — every workout here is on a date you've logged before. To change one, open it in <a href="#/history">History</a> and tap Edit.</div>`;
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Logging…';
+    try {
+      await api.addWorkouts(toSave);
+      dropMyCache();
+      toSave.forEach(w => loggedDates.add(w.date));
+      const sets = toSave.reduce((n, w) => n + w.exercises.reduce((m, e) => m + e.sets.length, 0), 0);
+      const sorted = [...toSave].sort((a, b) => a.date.localeCompare(b.date));
+      out.innerHTML = `
+        <div class="notice ok">
+          ✓ Logged <b>${plural(toSave.length, 'workout')}</b> and <b>${plural(sets, 'set')}</b>
+          ${toSave.length > 1 ? `from ${formatDate(sorted[0].date)} to ${formatDate(sorted[sorted.length - 1].date)}` : `on ${formatDate(sorted[0].date)}`}.
+          ${skipped ? `<br>Skipped ${plural(skipped, 'workout')} on dates you'd already logged.` : ''}
+        </div>
+        ${warningList(warnings)}
+        <div class="preview-list">
+          ${sorted.slice(0, 50).map(w => `
+            <details class="preview-item">
+              <summary>${shortDate(w.date)} <span class="muted">· ${plural(w.exercises.length, 'exercise')}</span></summary>
+              ${w.exercises.map(e => `<div class="mini"><b>${esc(e.name)}</b> ${e.sets.map(s => esc(setText(s))).join(', ')}</div>`).join('')}
+            </details>`).join('')}
+          ${sorted.length > 50 ? `<p class="hint">…and ${sorted.length - 50} more.</p>` : ''}
+        </div>
+        <p class="hint">Something read wrong? Fix it from <a href="#/history">History</a> → the workout → Edit.</p>`;
+      text.value = '';
+      toast(`Logged ${plural(toSave.length, 'workout')} 💪`);
+    } catch (e) {
+      toast(`Couldn't save: ${e.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Read & Log';
+    }
   });
 
   return { hasUnsaved: () => text.value.trim().length > 0 };
@@ -416,7 +415,7 @@ async function logView() {
         <p class="hint">Paste straight from RepCount. You can paste one workout or a whole stack of old ones — every date line starts a new workout.</p>
         ${pasteBoxHtml('log')}
       </section>`,
-    mount() { mountPasteBox('log', existing, { onSaved: () => go('history') }); },
+    mount() { mountPasteBox('log', existing); },
   };
 }
 
@@ -679,10 +678,6 @@ async function weightView() {
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
-
-function logoSvg() {
-  return `<svg viewBox="0 0 64 64" width="56" height="56" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#ff6b2c"/><g fill="#111"><rect x="8" y="24" width="6" height="16" rx="2"/><rect x="15" y="19" width="7" height="26" rx="2"/><rect x="42" y="19" width="7" height="26" rx="2"/><rect x="50" y="24" width="6" height="16" rx="2"/><rect x="22" y="29.5" width="20" height="5" rx="1.5"/></g></svg>`;
-}
 
 document.getElementById('sign-out').addEventListener('click', async () => {
   if (!confirm('Sign out?')) return;

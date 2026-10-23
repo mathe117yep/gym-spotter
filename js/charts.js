@@ -2,12 +2,12 @@
 import { toTime } from './stats.js';
 
 export const COLORS = {
-  squat: '#4cc9f0',
-  bench: '#ff6b2c',
-  weight: '#7bd88f',
-  muted: '#5c6370',
+  squat: '#e0e0e0',
+  bench: '#d4af37',
+  weight: '#f3d77a',
+  muted: '#6e6e6e',
   grid: 'rgba(255,255,255,0.06)',
-  text: '#9aa3b2',
+  text: '#9e9e9e',
 };
 
 const live = [];
