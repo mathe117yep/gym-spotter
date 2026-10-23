@@ -2,7 +2,7 @@
 // this browser only. Logins: demo1 / 1111 (onboarding), lifter / 0000, buddy / 0000.
 import { todayIso, toTime } from './stats.js';
 
-const STORE = 'gymspotter-demo-v4';
+const STORE = 'gymspotter-demo-v5';
 let state;
 let me = null;
 
@@ -228,4 +228,51 @@ export async function setAvatar(blob) {
   const path = `${me.id}/${Date.now()}.jpg`;
   avatarBlobs.set(path, URL.createObjectURL(blob));
   me.avatar_path = path;
+}
+
+export async function getAllWorkouts() {
+  await wait();
+  return assemble(state.workouts, state.sets);
+}
+
+export async function listAllPlans() {
+  return state.plans ?? [];
+}
+
+export async function getMeasurements(userId) {
+  return (state.measurements ?? []).filter(m => m.user_id === userId).sort((a, b) => a.taken_on.localeCompare(b.taken_on));
+}
+
+export async function getAllMeasurements() {
+  return state.measurements ?? [];
+}
+
+export async function addMeasurement(row) {
+  (state.measurements ??= []).push({ id: uid(), user_id: me.id, ...row });
+  save();
+}
+
+export async function deleteMeasurement(id) {
+  mine(state.measurements.find(m => m.id === id));
+  state.measurements = state.measurements.filter(m => m.id !== id);
+  save();
+}
+
+export async function getDeloads(userId) {
+  return (state.deloads ?? []).filter(d => d.user_id === userId).sort((a, b) => a.started_on.localeCompare(b.started_on));
+}
+
+export async function getAllDeloads() {
+  return state.deloads ?? [];
+}
+
+export async function addDeload(started_on) {
+  (state.deloads ??= []).push({ id: uid(), user_id: me.id, started_on });
+  save();
+}
+
+export async function deleteDeload(id) {
+  mine(state.deloads.find(d => d.id === id));
+  state.deloads = state.deloads.filter(d => d.id !== id);
+  save();
 }

@@ -38,7 +38,7 @@ export function targetsFor(muscle, goal, overrides) {
 
 const r1 = n => Math.round(n * 10) / 10;
 
-export function analyzeBalance({ workouts, goal, overrides, match, today = todayIso() }) {
+export function analyzeBalance({ workouts, goal, overrides, match, deloads = [], today = todayIso() }) {
   const sorted = [...workouts].sort((a, b) => a.date.localeCompare(b.date));
   const thisWeek = weekStart(today);
   const weeks = Array.from({ length: WEEKS }, (_, i) => addDays(thisWeek, -7 * (WEEKS - 1 - i)));
@@ -99,8 +99,9 @@ export function analyzeBalance({ workouts, goal, overrides, match, today = today
     for (const id of heavyHit) stats[id]?.heavy.push(w.date);
   }
 
-  // Completed weeks with 2+ workouts; break weeks (travel, time off) are skipped.
-  const valid = i => workoutsPerWeek[i] >= 2;
+  // Completed weeks with 2+ workouts; break weeks (travel, time off) and deload weeks are skipped.
+  const deloadWeeks = new Set(deloads.map(d => weekStart(d.started_on)));
+  const valid = i => workoutsPerWeek[i] >= 2 && !deloadWeeks.has(weeks[i]);
   const lastIdx = [...Array(WEEKS - 1).keys()].reverse().find(valid);
   const prevIdx = lastIdx != null && lastIdx > 0 && valid(lastIdx - 1) ? lastIdx - 1 : null;
 

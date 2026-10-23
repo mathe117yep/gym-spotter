@@ -8,6 +8,9 @@ import * as charts from './charts.js';
 import { MUSCLES, MUSCLE_LABEL, buildMatcher, keyOf } from './muscles.js';
 import { analyzeBalance } from './balance.js';
 import { compareWorkout } from './compare.js';
+import { leaderboard, timeline } from './social.js';
+import { FIELDS, TIPS, REMIND_DAYS, proportions } from './measure.js';
+import { deloadCheck, DELOAD_DAYS } from './deload.js';
 
 const demo = new URLSearchParams(location.search).has('demo');
 
@@ -539,15 +542,175 @@ function mountBalance(b, own, profile, exMap) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Body measurements and deloads (on dashboards and the Plan tab)
+// ---------------------------------------------------------------------------
+
+// "Not now" on a reminder hides it for a while, per person, on this phone.
+const snoozeKey = (what, userId) => `gs-${what}-snooze-${userId}`;
+function snoozed(what, userId) {
+  try { return Number(localStorage.getItem(snoozeKey(what, userId)) ?? 0) > Date.now(); } catch { return false; }
+}
+function snooze(what, userId, days) {
+  try { localStorage.setItem(snoozeKey(what, userId), String(Date.now() + days * 86400000)); } catch { /* reminder just comes back */ }
+}
+
+const inches = n => `${fmtWeight(n)}"`;
+const isoPlus = (iso, days) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+};
+
+function measurementsHtml(profile, list, own) {
+  const latest = list[list.length - 1];
+  const prev = list[list.length - 2];
+  const props = latest ? proportions(latest, profile.height_in) : [];
+  const delta = id => {
+    if (!prev || latest[id] == null || prev[id] == null) return '';
+    const d = latest[id] - prev[id];
+    return Math.abs(d) < 0.05 ? '<small>no change</small>' : `<small class="${d > 0 ? 'gold' : 'muted'}">${d > 0 ? '+' : '−'}${fmtWeight(Math.abs(d))}"</small>`;
+  };
+  return `
+    <section class="card" id="measurements">
+      <div class="row between"><h3>Body measurements</h3>${own ? '<button class="btn small" data-open-measure>Update</button>' : ''}</div>
+      ${latest ? `
+        <p class="muted small">Taken ${formatDate(latest.taken_on)}${prev ? ` · changes since ${formatDate(prev.taken_on)}` : ''}${own ? ` · next check ${formatDate(isoPlus(latest.taken_on, REMIND_DAYS))}` : ''}</p>
+        <div class="m-grid">
+          ${FIELDS.filter(f => latest[f.id] != null).map(f => `<div><span class="tile-label">${f.label}</span><b>${inches(latest[f.id])}</b>${delta(f.id)}</div>`).join('')}
+          ${profile.height_in ? `<div><span class="tile-label">Height</span><b>${Math.floor(profile.height_in / 12)}'${fmtWeight(profile.height_in % 12)}"</b></div>` : ''}
+        </div>
+        ${props.length ? `
+          <div class="props">${props.map(p => `
+            <div class="prop ${p.status}">
+              <div class="row between"><b>${p.title}</b><span>${p.value}</span></div>
+              <p class="small">${esc(p.text)}</p>
+            </div>`).join('')}
+          </div>
+          <p class="hint">Waist-to-height has health research behind it. The others are classic bodybuilding proportion guidelines, not medical advice.</p>` : ''}
+        ${own && list.length ? `
+          <details class="m-history"><summary class="small muted">All check-ins (${list.length})</summary>
+            ${[...list].reverse().map(m => `
+              <div class="list-row static"><span>${formatDate(m.taken_on)}</span>
+                <span class="small muted">${FIELDS.filter(f => m[f.id] != null).map(f => `${f.label.toLowerCase()} ${inches(m[f.id])}`).join(' · ')}
+                <button class="icon-btn" data-del-measure="${m.id}" aria-label="Delete">✕</button></span></div>`).join('')}
+          </details>` : ''}`
+      : `<p class="empty">${own ? 'No measurements yet. Tap Update — it takes 2 minutes with a tape measure.' : 'No measurements yet.'}</p>`}
+    </section>`;
+}
+
+function measureDialogHtml(profile, last) {
+  return `
+    <dialog id="measure-dialog" class="tall">
+      <h3>Body measurements</h3>
+      <details class="m-tips"><summary class="small gold">How to measure (read once)</summary>
+        <ul class="small">${TIPS.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
+      </details>
+      <form id="measure-form">
+        ${profile.height_in ? '' : `
+          <div class="row">
+            <label class="grow">Height (feet)<input type="number" name="ft" inputmode="numeric" min="4" max="7" placeholder="5"></label>
+            <label class="grow">Height (inches)<input type="number" name="in" inputmode="decimal" min="0" max="11.5" step="0.5" placeholder="10"></label>
+          </div>
+          <p class="hint">Asked once — used for your waist-to-height ratio.</p>`}
+        ${FIELDS.map(f => `
+          <div class="m-field">
+            <label>${f.label} (in)<input type="number" name="${f.id}" inputmode="decimal" step="0.25" min="5" max="80" placeholder="${last?.[f.id] != null ? fmtWeight(last[f.id]) : ''}"></label>
+            <details><summary class="small muted">How?</summary><p class="small">${esc(f.how)}</p></details>
+          </div>`).join('')}
+        <p class="error-text" id="measure-error"></p>
+        <div class="row"><button type="button" class="btn grow" id="measure-cancel">Cancel</button><button class="btn primary grow" type="submit">Save</button></div>
+      </form>
+    </dialog>`;
+}
+
+function mountMeasurements(profile) {
+  const dialog = document.getElementById('measure-dialog');
+  if (!dialog) return;
+  document.querySelectorAll('[data-open-measure]').forEach(b => b.addEventListener('click', () => dialog.showModal()));
+  document.getElementById('measure-cancel').addEventListener('click', () => dialog.close());
+  document.getElementById('measure-form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const form = ev.target;
+    const row = { taken_on: todayIso() };
+    for (const f of FIELDS) {
+      const v = parseFloat(form.elements[f.id].value);
+      if (v > 0) row[f.id] = v;
+    }
+    const err = document.getElementById('measure-error');
+    if (Object.keys(row).length === 1) { err.textContent = 'Fill in at least one measurement.'; return; }
+    const ft = parseFloat(form.elements.ft?.value), inch = parseFloat(form.elements.in?.value || '0');
+    try {
+      if (ft > 0) await api.updateMyProfile({ height_in: ft * 12 + (inch || 0) });
+      await api.addMeasurement(row);
+      dialog.close();
+      toast('Measurements saved 📏');
+      route();
+    } catch (e) {
+      err.textContent = `Couldn't save: ${e.message}`;
+    }
+  });
+  document.querySelectorAll('[data-del-measure]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('Delete this check-in?')) return;
+    await api.deleteMeasurement(b.dataset.delMeasure);
+    route();
+  }));
+  document.querySelector('[data-snooze-measure]')?.addEventListener('click', ev => {
+    snooze('measure', profile.id, 14);
+    ev.target.closest('.card').remove();
+  });
+}
+
+function deloadDialogHtml(check) {
+  return `
+    <dialog id="deload-dialog">
+      <h3>Time for a deload? 🔋</h3>
+      <ul class="small">${check.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+      <p class="small">A deload is one easier week so your joints and nervous system catch up — you usually come back stronger.
+      Keep the weights about the same (or ~10% lighter) and cut your sets roughly in half.</p>
+      <div class="row"><button class="btn grow" id="deload-later">Remind me next week</button><button class="btn primary grow" id="deload-start">Start deload</button></div>
+    </dialog>`;
+}
+
+function deloadBannerHtml(check) {
+  return `
+    <section class="card deload-banner">
+      <b>🔋 Deload week — day ${check.day} of ${DELOAD_DAYS}</b>
+      <p class="small">Same weights (or ~10% lighter), about half the sets. Back to normal training on ${formatDate(isoPlus(check.last, DELOAD_DAYS))}.</p>
+    </section>`;
+}
+
+function mountDeload(profile, check) {
+  const dialog = document.getElementById('deload-dialog');
+  if (!dialog) return;
+  dialog.showModal();
+  document.getElementById('deload-later').addEventListener('click', () => { snooze('deload', profile.id, 7); dialog.close(); });
+  document.getElementById('deload-start').addEventListener('click', async () => {
+    try {
+      await api.addDeload(todayIso());
+      dialog.close();
+      toast('Deload week started 🔋');
+      route();
+    } catch (e) {
+      toast(`Couldn't save: ${e.message}`);
+    }
+  });
+}
+
 async function dashboardView(profile) {
   const own = profile.id === me().id;
-  const [workouts, bodyweights, exMap, avatars] = await Promise.all([
+  const [workouts, bodyweights, exMap, avatars, measures, deloads] = await Promise.all([
     workoutsFor(profile.id), api.getBodyweights(profile.id), exerciseMap(), avatarsFor([profile]),
+    soft(api.getMeasurements(profile.id)), soft(api.getDeloads(profile.id)),
   ]);
   const avatarUrl = avatars.get(profile.id);
   const balance = workouts.length
-    ? analyzeBalance({ workouts, goal: profile.goal, overrides: profile.muscle_targets, match: buildMatcher(exMap) })
+    ? analyzeBalance({ workouts, goal: profile.goal, overrides: profile.muscle_targets, match: buildMatcher(exMap), deloads })
     : null;
+  const deload = own ? deloadCheck({ workouts, deloads, goal: profile.goal, balance, joined: profile.created_at?.slice(0, 10) }) : null;
+  const lastMeasure = measures[measures.length - 1];
+  const measureDue = own && workouts.length && !snoozed('measure', profile.id)
+    && (!lastMeasure || daysAgo(lastMeasure.taken_on) >= REMIND_DAYS);
   const squat = liftSummary(workouts, SQUAT);
   const bench = liftSummary(workouts, BENCH);
   const bw = weightSummary(bodyweights);
@@ -585,7 +748,14 @@ async function dashboardView(profile) {
              <a class="muted small" href="#/weight">Weight log ›</a>`}
         ${todayBw ? remarkHtml(dailyRemark(profile.goal, bodyweights, today)) : ''}
       </section>
-      ${todayBw && mondayReport ? `<section class="card"><div class="row between"><h3>Weekly report</h3><a class="small" href="#/plan">Plan ›</a></div>${reportHtml(mondayReport)}</section>` : ''}` : ''}
+      ${todayBw && mondayReport ? `<section class="card"><div class="row between"><h3>Weekly report</h3><a class="small" href="#/plan">Plan ›</a></div>${reportHtml(mondayReport)}</section>` : ''}
+      ${deload?.active ? deloadBannerHtml(deload) : ''}
+      ${measureDue ? `
+        <section class="card reminder">
+          <b>📏 ${lastMeasure ? 'Time to update your body measurements' : 'Add your body measurements'}</b>
+          <p class="small muted">${lastMeasure ? `Last check-in was ${formatDate(lastMeasure.taken_on)}. Every 3 months shows how your shape is changing.` : 'Waist, chest, arms, thighs and calves — about 2 minutes with a tape measure.'}</p>
+          <div class="row"><button class="btn small grow" data-snooze-measure>Not now</button><button class="btn small primary grow" data-open-measure>Update now</button></div>
+        </section>` : ''}` : ''}
 
     <div class="tiles">
       ${maxTile('Squat', testedMax(workouts, SQUAT), squat, charts.COLORS.squat, profile)}
@@ -606,6 +776,9 @@ async function dashboardView(profile) {
     ${bw && bw.trend.length > 1 ? `<section class="card" id="weight-chart"><h3>Body weight</h3><div class="chart"><canvas id="c-weight"></canvas></div></section>` : ''}
     ${workouts.length ? `<section class="card"><h3>Weekly volume</h3><p class="hint">Total pounds moved (weight × reps), last 12 weeks.</p><div class="chart short"><canvas id="c-volume"></canvas></div></section>` : ''}
     ${balance ? balanceHtml(balance, own, profile) : ''}
+    ${measurementsHtml(profile, measures, own)}
+    ${own ? measureDialogHtml(profile, lastMeasure) : ''}
+    ${deload?.due && !snoozed('deload', profile.id) ? deloadDialogHtml(deload) : ''}
 
     ${prs.length ? `
       <section class="card">
@@ -678,6 +851,10 @@ async function dashboardView(profile) {
       });
 
       if (balance) mountBalance(balance, own, profile, exMap);
+      if (own) {
+        mountMeasurements(profile);
+        mountDeload(profile, deload);
+      }
 
       document.getElementById('avatar-file')?.addEventListener('change', async ev => {
         const file = ev.target.files[0];
@@ -873,7 +1050,10 @@ function planDoneHtml(plan, s) {
 }
 
 async function planView() {
-  const [bodyweights, plans, workouts] = await Promise.all([api.getBodyweights(me().id), api.listPlans(me().id), workoutsFor(me().id)]);
+  const [bodyweights, plans, workouts, deloads] = await Promise.all([
+    api.getBodyweights(me().id), api.listPlans(me().id), workoutsFor(me().id), soft(api.getDeloads(me().id)),
+  ]);
+  const deload = deloadCheck({ workouts, deloads, goal: me().goal, joined: me().created_at?.slice(0, 10) });
   const goal = me().goal;
   const today = todayIso();
   const current = weightSummary(bodyweights)?.latest.avg;
@@ -920,6 +1100,16 @@ async function planView() {
             </div>`).join('')}
         </section>` : ''}
 
+      <section class="card" id="deloads">
+        <h3>Deloads</h3>
+        <p class="hint">An easier week (same weights or ~10% lighter, about half the sets) so you recover and come back stronger. The app suggests one after ${goal === 'cut' ? '4–8' : '6–10'} weeks of training, sooner if your lifts stall.</p>
+        ${deload?.active ? `<p class="small gold">Deload in progress — day ${deload.day} of ${DELOAD_DAYS}.</p>`
+          : deload ? `<p class="small">${deload.weeks} weeks since your ${deload.last ? `last deload (${formatDate(deload.last)})` : 'first week on Gym Spotter'}.${deload.due ? ' <b class="gold">A deload is recommended.</b>' : ''}</p>` : ''}
+        ${deload && !deload.active ? '<button class="btn small" id="start-deload">Start a deload week</button>' : ''}
+        ${deloads.length ? `<div class="m-history">${[...deloads].reverse().map(d => `
+          <div class="list-row static"><span>Week of ${formatDate(d.started_on)}</span><button class="icon-btn" data-del-deload="${d.id}" aria-label="Delete">✕</button></div>`).join('')}</div>` : ''}
+      </section>
+
       ${plans.length ? `
         <section class="card">
           <h3>Plans completed</h3>
@@ -945,6 +1135,22 @@ async function planView() {
           toast(`Couldn't save: ${e.message}`);
         }
       });
+
+      document.getElementById('start-deload')?.addEventListener('click', async () => {
+        if (!confirm('Start a deload week today?')) return;
+        try {
+          await api.addDeload(today);
+          toast('Deload week started 🔋');
+          route();
+        } catch (e) {
+          toast(`Couldn't save: ${e.message}`);
+        }
+      });
+      document.querySelectorAll('[data-del-deload]').forEach(btn => btn.addEventListener('click', async () => {
+        if (!confirm('Delete this deload week?')) return;
+        await api.deleteDeload(btn.dataset.delDeload);
+        route();
+      }));
 
       document.querySelectorAll('[data-del-plan]').forEach(btn => btn.addEventListener('click', async () => {
         if (!confirm('Delete this completed plan? This can\'t be undone.')) return;
@@ -986,11 +1192,79 @@ async function planView() {
 // Buddies
 // ---------------------------------------------------------------------------
 
+// Crew data that lives in newer tables: if a database update hasn't been run yet, treat it as empty.
+const soft = promise => promise.catch(e => { console.warn(e.message); return []; });
+
+const MEDALS = ['🥇', '🥈', '🥉'];
+const nameOf = p => (p.id === me().id ? 'You' : esc(p.display_name));
+
+function boardRows(rows, field, avatars) {
+  if (!rows.length) return `<p class="empty">${field === 'volume' ? 'No workouts logged yet this week.' : 'Nothing to compare yet this week — growth needs exercises you have done before.'}</p>`;
+  return rows.map((r, i) => `
+    <a class="lb-row${r.profile.id === me().id ? ' me' : ''}" href="#/u/${encodeURIComponent(r.profile.username)}">
+      <span class="lb-rank">${MEDALS[i] ?? i + 1}</span>
+      ${avatarHtml(r.profile, avatars.get(r.profile.id), 'sm')}
+      <span class="lb-name">${nameOf(r.profile)}<small>${field === 'volume' ? plural(r.workouts, 'workout') : `${plural(r.compared, 'lift')} compared`}</small></span>
+      <b class="lb-val${field === 'growth' ? (r.growth >= 0 ? ' gold' : ' down-text') : ''}">${field === 'volume'
+        ? `${Math.round(r.volume).toLocaleString()} lb`
+        : `${r.growth >= 0 ? '+' : '−'}${Math.abs(r.growth).toFixed(1)}%`}</b>
+    </a>`).join('');
+}
+
+function leaderboardHtml(board, avatars) {
+  const winners = [
+    board.lastVolume && `🥇 Volume: <b>${nameOf(board.lastVolume.profile)}</b> (${Math.round(board.lastVolume.volume).toLocaleString()} lb)`,
+    board.lastGrowth && `📈 Growth: <b>${nameOf(board.lastGrowth.profile)}</b> (${board.lastGrowth.growth >= 0 ? '+' : '−'}${Math.abs(board.lastGrowth.growth).toFixed(1)}%)`,
+  ].filter(Boolean);
+  return `
+    <section class="card leaderboard">
+      <div class="row between"><h3>This week</h3><span class="muted small">Mon–Sun · resets Monday</span></div>
+      <div class="segment lb-switch">
+        <a href="#" data-board="volume" class="active">Volume</a>
+        <a href="#" data-board="growth">Growth</a>
+      </div>
+      <div data-board-list="volume">${boardRows(board.volume, 'volume', avatars)}</div>
+      <div data-board-list="growth" hidden>
+        ${boardRows(board.growth, 'growth', avatars)}
+        <p class="hint">Growth = the average change in estimated max across every exercise this week, each compared with the last time it was done.</p>
+      </div>
+      ${winners.length ? `<p class="small last-week">Last week · ${winners.join(' · ')}</p>` : ''}
+    </section>`;
+}
+
+function timelineHtml(events, avatars) {
+  if (!events.length) return '<section class="card"><h3>Timeline</h3><p class="empty">Nothing in the last 30 days yet.</p></section>';
+  return `
+    <section class="card" id="timeline">
+      <h3>Timeline</h3>
+      <p class="hint">The last 30 days across the crew.</p>
+      ${events.map(e => {
+        const inner = `
+          ${avatarHtml(e.profile, avatars.get(e.profile.id), 'sm')}
+          <div class="tl-body">
+            <div><b>${nameOf(e.profile)}</b> ${esc(e.text)}</div>
+            ${e.sub ? `<div class="muted small">${esc(e.sub)}</div>` : ''}
+            ${e.prs?.length ? `<div class="small gold">🏆 New best: ${e.prs.map(esc).join(', ')}</div>` : ''}
+            <div class="tl-when">${relDay(e.date)}</div>
+          </div>`;
+        return e.workoutId
+          ? `<a class="tl ${e.kind}" href="#/u/${encodeURIComponent(e.profile.username)}/w/${e.workoutId}">${inner}</a>`
+          : `<div class="tl ${e.kind}">${inner}</div>`;
+      }).join('')}
+    </section>`;
+}
+
 async function buddiesView() {
-  const { profiles, workouts, bodyweights } = await api.getBuddyData();
-  const avatars = await avatarsFor(profiles);
-  const buddies = profiles.filter(p => p.id !== me().id && p.onboarded).map(p => {
-    const ws = workouts.filter(w => w.user_id === p.id);
+  const [{ profiles, bodyweights }, allWorkouts, plans, measurements, deloads, exMap] = await Promise.all([
+    api.getBuddyData(), api.getAllWorkouts(), soft(api.listAllPlans()), soft(api.getAllMeasurements()), soft(api.getAllDeloads()), exerciseMap(),
+  ]);
+  const crew = profiles.filter(p => p.onboarded);
+  const avatars = await avatarsFor(crew);
+  const board = leaderboard(crew, allWorkouts);
+  const events = timeline({ profiles: crew, allWorkouts, plans, bodyweights, measurements, deloads, match: buildMatcher(exMap) }).slice(0, 40);
+
+  const buddies = crew.filter(p => p.id !== me().id).map(p => {
+    const ws = allWorkouts.filter(w => w.user_id === p.id);
     const last = ws.reduce((m, w) => (w.date > m ? w.date : m), '');
     const bws = bodyweights.filter(b => b.user_id === p.id);
     return {
@@ -1004,6 +1278,7 @@ async function buddiesView() {
   return {
     html: `
       <div class="page-title"><h2>Buddies</h2><span class="muted small">Tap anyone to see their full dashboard</span></div>
+      ${leaderboardHtml(board, avatars)}
       ${buddies.length ? buddies.map(({ p, last, bws, squat, bench, bw }) => `
         <a class="card buddy" href="#/u/${encodeURIComponent(p.username)}">
           <div class="row between">
@@ -1018,7 +1293,15 @@ async function buddiesView() {
           </div>
         </a>`).join('')
         : '<p class="empty">No buddies yet. Once Eli adds accounts for the crew, they show up here.</p>'}
-      <p class="hint center">Squat &amp; bench are tested maxes (a logged single, weight x 1), with the estimate shown when there isn't one yet. Weight is a 7-day average.</p>`,
+      <p class="hint center">Squat &amp; bench are tested maxes (a logged single, weight x 1), with the estimate shown when there isn't one yet. Weight is a 7-day average.</p>
+      ${timelineHtml(events, avatars)}`,
+    mount() {
+      document.querySelectorAll('[data-board]').forEach(tab => tab.addEventListener('click', ev => {
+        ev.preventDefault();
+        document.querySelectorAll('[data-board]').forEach(t => t.classList.toggle('active', t === tab));
+        document.querySelectorAll('[data-board-list]').forEach(l => { l.hidden = l.dataset.boardList !== tab.dataset.board; });
+      }));
+    },
   };
 }
 

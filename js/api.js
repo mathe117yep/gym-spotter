@@ -24,7 +24,7 @@ async function fetchAll(build) {
 }
 
 export function assemble(workoutRows, setRows) {
-  const byWorkout = new Map(workoutRows.map(w => [w.id, { id: w.id, user_id: w.user_id, date: w.workout_date, exercises: [] }]));
+  const byWorkout = new Map(workoutRows.map(w => [w.id, { id: w.id, user_id: w.user_id, date: w.workout_date, created_at: w.created_at, exercises: [] }]));
   const sorted = [...setRows].sort((a, b) => a.position - b.position || a.set_number - b.set_number);
   for (const s of sorted) {
     const w = byWorkout.get(s.workout_id);
@@ -201,4 +201,49 @@ export async function setAvatar(blob) {
   check(await db.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg' }));
   await updateMyProfile({ avatar_path: path });
   if (old) await db.storage.from('avatars').remove([old]);
+}
+
+// Everyone's full history: for the leaderboard ("vs last time") and the timeline.
+export async function getAllWorkouts() {
+  const [workouts, sets] = await Promise.all([
+    fetchAll(() => db.from('workouts').select('id, user_id, workout_date, created_at').order('id')),
+    fetchAll(() => db.from('sets').select('workout_id, exercise, position, set_number, weight, reps, note').order('id')),
+  ]);
+  return assemble(workouts, sets);
+}
+
+export async function listAllPlans() {
+  return fetchAll(() => db.from('plan_history').select('*').order('id'));
+}
+
+export async function getMeasurements(userId) {
+  return check(await db.from('measurements').select('*').eq('user_id', userId).order('taken_on'));
+}
+
+export async function getAllMeasurements() {
+  return fetchAll(() => db.from('measurements').select('id, user_id, taken_on').order('id'));
+}
+
+export async function addMeasurement(row) {
+  check(await db.from('measurements').insert(row));
+}
+
+export async function deleteMeasurement(id) {
+  check(await db.from('measurements').delete().eq('id', id));
+}
+
+export async function getDeloads(userId) {
+  return check(await db.from('deloads').select('*').eq('user_id', userId).order('started_on'));
+}
+
+export async function getAllDeloads() {
+  return fetchAll(() => db.from('deloads').select('id, user_id, started_on').order('id'));
+}
+
+export async function addDeload(started_on) {
+  check(await db.from('deloads').insert({ started_on }));
+}
+
+export async function deleteDeload(id) {
+  check(await db.from('deloads').delete().eq('id', id));
 }

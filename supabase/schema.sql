@@ -15,6 +15,7 @@ create table public.profiles (
   goal_started_on date,
   muscle_targets jsonb,
   avatar_path  text,
+  height_in    numeric,
   created_at   timestamptz not null default now()
 );
 
@@ -192,3 +193,43 @@ create policy "avatar files: owner can upload" on storage.objects
 create policy "avatar files: owner can delete" on storage.objects
   for delete to authenticated
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- Body measurements (visible to the crew) and deload weeks.
+create table public.measurements (
+  id        uuid primary key default gen_random_uuid(),
+  user_id   uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  taken_on  date not null,
+  neck      numeric,
+  chest     numeric,
+  waist     numeric,
+  biceps    numeric,
+  thigh     numeric,
+  calves    numeric,
+  created_at timestamptz not null default now()
+);
+create index measurements_user on public.measurements (user_id, taken_on);
+
+create table public.deloads (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  started_on date not null,
+  created_at timestamptz not null default now()
+);
+create index deloads_user on public.deloads (user_id, started_on);
+
+alter table public.measurements enable row level security;
+alter table public.deloads      enable row level security;
+
+create policy "measurements: signed-in users can view" on public.measurements
+  for select to authenticated using (true);
+create policy "measurements: owner can insert" on public.measurements
+  for insert to authenticated with check (user_id = auth.uid());
+create policy "measurements: owner can delete" on public.measurements
+  for delete to authenticated using (user_id = auth.uid());
+
+create policy "deloads: signed-in users can view" on public.deloads
+  for select to authenticated using (true);
+create policy "deloads: owner can insert" on public.deloads
+  for insert to authenticated with check (user_id = auth.uid());
+create policy "deloads: owner can delete" on public.deloads
+  for delete to authenticated using (user_id = auth.uid());
