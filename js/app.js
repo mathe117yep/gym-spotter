@@ -1360,6 +1360,14 @@ async function buddiesView() {
   }).sort((a, b) => b.last.localeCompare(a.last) || a.p.display_name.localeCompare(b.p.display_name));
 
   const lift = l => (l.tested ? fmtWeight(l.tested.weight) : `—${l.est ? `<small>est. ${l.est}</small>` : ''}`);
+  // When their last weigh-in was: "Today", "Yesterday", or the date.
+  const weighInWhen = iso => {
+    const n = daysAgo(iso);
+    if (n <= 0) return 'Today';
+    if (n === 1) return 'Yesterday';
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(y !== new Date().getFullYear() && { year: 'numeric' }) });
+  };
   return {
     html: `
       <div class="page-title"><h2>Buddies</h2><span class="muted small">Tap anyone to see their full dashboard</span></div>
@@ -1374,7 +1382,7 @@ async function buddiesView() {
           <div class="buddy-stats">
             <div><span class="tile-label">Squat</span><b style="color:${charts.COLORS.squat}">${lift(squat)}</b></div>
             <div><span class="tile-label">Bench</span><b style="color:${charts.COLORS.bench}">${lift(bench)}</b></div>
-            <div><span class="tile-label">Weight</span><b>${bw ? fmtWeight(bw.latest.avg) : '—'}</b></div>
+            <div><span class="tile-label">Weight</span><b>${bw ? `${fmtWeight(bw.latest.avg)}<small>${weighInWhen(bw.latest.date)}</small>` : '—'}</b></div>
           </div>
         </a>`).join('')
         : '<p class="empty">No buddies yet. Once Eli adds accounts for the crew, they show up here.</p>'}
